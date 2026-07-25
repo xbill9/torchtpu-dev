@@ -266,7 +266,12 @@ serving, provision with `workload="pytorch"`:
   (`.cpu()`), not the faulting line — wrap in
   `execution_mode.eager_mode(EagerMode.DEFER_NEVER)` (slow) to pinpoint
   NaN/OOM. `utils.OpTracer()` audits dispatched ops — high `aten.copy_` /
-  `aten._to_copy` counts mean hidden CPU round-trips. Bug reports upstream:
+  `aten._to_copy` counts mean hidden CPU round-trips.
+  `torch._logging.set_logs(aot_graphs=True)` dumps the traced forward AND
+  backward FX graphs (one level above the HLO dump). Custom backward over
+  stock ops → `torch.autograd.Function`; new kernels → `torch.library`
+  custom ops (what `pallas.jax_op` wraps) — per upstream, don't build custom
+  ops on autograd.Function in PyTorch 2.x. Bug reports upstream:
   include the Python traceback + `TORCH_SHOW_CPP_STACKTRACES=1` output.
 - **`torch.tpu` is a drop-in for `torch.cuda`** (is_available, device_count,
   current_device, manual_seed_all); AMP is `torch.amp.autocast("tpu", ...)`;
