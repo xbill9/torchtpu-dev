@@ -82,6 +82,18 @@ TORCH_TPU_INDEX = os.getenv(
     "TORCH_TPU_INDEX",
     "us-python.pkg.dev/ml-oss-artifacts-transient/torch-tpu-virtual-registry/simple/",
 )
+# Project-owned GCS mirror of the two private wheels (custom torch base +
+# torch_tpu extension, per the TorchTPU GDE quickstart's wheel install path).
+# The startup script tries this FIRST: the default compute SA typically cannot
+# read Google's Artifact Registry (no grantable IAM), but a bucket in our own
+# project is. Missing bucket/objects fall through to the index. Empty disables.
+TORCH_TPU_WHEELS_GCS = os.getenv("TORCH_TPU_WHEELS_GCS", f"gs://{PROJECT_ID}-torchtpu-wheels")
+# Public-PyPI extras installed after the TPU stack: the standard kit for the
+# QAT / custom-kernel work (compressed-tensors checkpoints, Pallas via jax,
+# chat templates need jinja2>=3.1). Best-effort at boot; failure is non-fatal.
+TORCH_TPU_PIP_EXTRAS = os.getenv(
+    "TORCH_TPU_PIP_EXTRAS", "transformers compressed-tensors 'jinja2>=3.1' jax"
+)
 
 # find_tpu records per-zone provisioning outcomes here so later sweeps can skip
 # zones that never delivered capacity. Lives outside the skill directory so
@@ -256,6 +268,8 @@ def _get_pytorch_startup_script(zone: str) -> str:
             zone=zone,
             torch_pip_spec=TORCH_TPU_PIP_SPEC,
             torch_index=TORCH_TPU_INDEX,
+            wheels_gcs=TORCH_TPU_WHEELS_GCS,
+            torch_pip_extras=TORCH_TPU_PIP_EXTRAS,
         )
     except Exception as e:
         raise RuntimeError(f"Cannot build startup script from {template_path}: {e}") from e
@@ -1957,7 +1971,13 @@ async def get_help() -> str:
         "(torch_tpu pulls the matching CPU torch automatically — never add torch here).\n"
         f"  - *Current Value:* `{TORCH_TPU_PIP_SPEC}`\n"
         f"- **`TORCH_TPU_INDEX`**: Artifact Registry pip index for torch_tpu (token spliced in at boot).\n"
-        f"  - *Current Value:* `{TORCH_TPU_INDEX}`\n\n"
+        f"  - *Current Value:* `{TORCH_TPU_INDEX}`\n"
+        f"- **`TORCH_TPU_WHEELS_GCS`**: project-owned GCS mirror of the torch/torch_tpu wheels; "
+        "tried before the index (the VM SA can read our bucket but usually not Google's registry). "
+        "Empty disables.\n"
+        f"  - *Current Value:* `{TORCH_TPU_WHEELS_GCS}`\n"
+        f"- **`TORCH_TPU_PIP_EXTRAS`**: public-PyPI extras installed after the TPU stack (QAT kit).\n"
+        f"  - *Current Value:* `{TORCH_TPU_PIP_EXTRAS}`\n\n"
         "A Hugging Face token must exist as Secret Manager secret `hf-token` "
         "(save one with `save_hf_token`) before vLLM resource creation "
         "(workload='pytorch' VMs don't need it).\n\n"

@@ -11,6 +11,8 @@ echo "Project ID: {project_id}"
 echo "Zone: {zone}"
 echo "Pip packages: {torch_pip_spec}"
 echo "Package index: {torch_index}"
+echo "Wheel mirror: {wheels_gcs}"
+echo "Pip extras: {torch_pip_extras}"
 echo "-----------------------------------"
 
 # Ensure internet connectivity
@@ -80,29 +82,82 @@ if [ -z "$ACCESS_TOKEN" ]; then
   exit 1
 fi
 
-# Install torch_tpu from the authenticated index. Per the quickstart, the
+# Preferred path: the project-owned GCS wheel mirror (per the TorchTPU GDE
+# quickstart's wheel install: custom torch base first, then the torch_tpu
+# extension; remaining deps resolve from public PyPI). The VM's service
+# account can be granted read on our own bucket — unlike Google's Artifact
+# Registry, where the default compute SA typically 403s.
+INSTALL_OK=0
+WHEELS_GCS="{wheels_gcs}"
+if [ -n "$WHEELS_GCS" ]; then
+  set +e
+  GCS_BUCKET=$(echo "$WHEELS_GCS" | sed 's|^gs://||; s|/.*$||')
+  echo "Trying wheel mirror gs://$GCS_BUCKET ..."
+  WHEEL_NAMES=$(curl -sf -H "Authorization: Bearer $ACCESS_TOKEN" \
+    "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o?alt=json" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(sorted(i["name"] for i in d.get("items", []) if i["name"].endswith(".whl"))))' 2>/dev/null)
+  if [ -n "$WHEEL_NAMES" ]; then
+    mkdir -p /tmp/torchtpu-wheels
+    DL_OK=1
+    for NAME in $WHEEL_NAMES; do
+      ENC=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$NAME")
+      echo "Downloading $NAME from the mirror..."
+      curl -sf -H "Authorization: Bearer $ACCESS_TOKEN" -o "/tmp/torchtpu-wheels/$NAME" \
+        "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o/$ENC?alt=media" || DL_OK=0
+    done
+    if [ "$DL_OK" -eq 1 ]; then
+      # torch-*.whl sorts before torch_tpu-*.whl; base wheel installs first.
+      python3.12 -m pip install --break-system-packages /tmp/torchtpu-wheels/torch-*.whl \
+        && python3.12 -m pip install --break-system-packages /tmp/torchtpu-wheels/torch_tpu-*.whl \
+        && INSTALL_OK=1
+    fi
+  fi
+  if [ "$INSTALL_OK" -eq 1 ]; then
+    echo "PyTorch TPU stack installed from the GCS wheel mirror."
+  else
+    echo "Wheel mirror unavailable or failed; falling back to the pip index."
+  fi
+  set -e
+fi
+
+# Fallback: the authenticated Artifact Registry index. Per the quickstart, the
 # matching CPU build of torch (2.11) is pulled automatically — NEVER add torch
 # itself to the package list.
-echo "Installing PyTorch TPU stack: {torch_pip_spec} (index token masked)"
-set +e
-INSTALL_OK=0
-for i in $(seq 1 5); do
-  echo "Attempt $i/5: python3.12 -m pip install --pre --break-system-packages --index-url https://oauth2accesstoken:***masked***@{torch_index} {torch_pip_spec}"
-  python3.12 -m pip install --pre --break-system-packages --index-url "https://oauth2accesstoken:$ACCESS_TOKEN@{torch_index}" {torch_pip_spec}
-  if [ $? -eq 0 ]; then
-    INSTALL_OK=1
-    echo "PyTorch TPU stack installed."
-    break
-  fi
-  echo "pip install failed, retrying in 20 seconds..."
-  sleep 20
-done
-set -e
+if [ "$INSTALL_OK" -eq 0 ]; then
+  echo "Installing PyTorch TPU stack: {torch_pip_spec} (index token masked)"
+  set +e
+  for i in $(seq 1 5); do
+    echo "Attempt $i/5: python3.12 -m pip install --pre --break-system-packages --index-url https://oauth2accesstoken:***masked***@{torch_index} {torch_pip_spec}"
+    python3.12 -m pip install --pre --break-system-packages --index-url "https://oauth2accesstoken:$ACCESS_TOKEN@{torch_index}" {torch_pip_spec}
+    if [ $? -eq 0 ]; then
+      INSTALL_OK=1
+      echo "PyTorch TPU stack installed."
+      break
+    fi
+    echo "pip install failed, retrying in 20 seconds..."
+    sleep 20
+  done
+  set -e
+fi
 if [ "$INSTALL_OK" -eq 0 ]; then
   echo "ERROR: Failed to install the PyTorch TPU stack after multiple retries."
-  echo "If pip reported 403/401: grant the VM's service account Artifact Registry"
-  echo "reader access to the torch_tpu registry, then reset the VM."
+  echo "Fixes: upload the two wheels to $WHEELS_GCS (grant the VM SA"
+  echo "roles/storage.objectViewer), or grant it Artifact Registry reader on"
+  echo "the torch_tpu registry, then reset the VM."
   exit 1
+fi
+
+# QAT / kernel-dev extras from public PyPI (transformers, compressed-tensors,
+# jinja2>=3.1, jax for Pallas). Best-effort: the TPU stack itself is already
+# verified below, and workloads can re-run this install if needed.
+if [ -n "{torch_pip_extras}" ]; then
+  echo "Installing extras: {torch_pip_extras}"
+  set +e
+  python3.12 -m pip install --break-system-packages {torch_pip_extras}
+  if [ $? -ne 0 ]; then
+    echo "WARNING: extras install failed; continuing without them."
+  fi
+  set -e
 fi
 
 # Write the smoke test to a well-known path so it can be rerun any time
