@@ -307,7 +307,12 @@ serving, provision with `workload="pytorch"`:
   `torch_tpu._internal.pallas` — upstream says that import will likely move to
   `torch_tpu.experimental`, so try that if it breaks. jax_op auto-registers a
   custom op + fake impl, so it composes with `torch.compile(backend="tpu")`;
-  training needs a backward jax_op wired via `register_autograd`.
+  training needs a backward wired via `register_autograd` — a second jax_op,
+  or auto-derived with `jax.jvp`/`jax.grad` (upstream
+  `tests/pallas/pallas_test.py::test_jax_dot_grad_for_backwards`). Pallas is
+  optional: wrapping a plain `jax.lax` fn exposes StableHLO ops ATen lacks
+  (`population_count` — inference-only; `approx_max_k`). Caution: HLO/LLO
+  dumps explode fast (60k+ files per session) — dump one small run at a time.
 
 Upstream references: [torch_tpu repo](https://github.com/google-pytorch/torch_tpu)
 (private — GDE program access), [docs](http://google-pytorch.github.io/torch_tpu/)
