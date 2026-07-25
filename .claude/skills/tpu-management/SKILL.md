@@ -230,6 +230,35 @@ serving, provision with `workload="pytorch"`:
   OUTSIDE the compiled region (the static-buffer decode loop pattern).
   Allocate scratch models/tensors directly on-device with
   `with torch.device("tpu"):` instead of CPU-init + transfer.
+- **Env vars lock at backend init** (first torch import / `torch.device("tpu")`)
+  — set them before, or restart the process. Debug:
+  `TORCH_SHOW_CPP_STACKTRACES=1` (C++ frames in RuntimeErrors),
+  `TORCH_TPU_INTERNAL_ENABLE_DEBUG_CHECKS=1` (bounds checks — catches silent
+  OOB corruption, slow), `TORCH_DISABLE_ADDR2LINE=1` if symbolizing hangs.
+  Tuning: `TORCH_TPU_INTERNAL_XLA_OPTIONS=xla_optimization_level=O[0-3]`
+  (O2 default; O3 slower compile, maybe faster steps);
+  `XLA_FLAGS="--xla_dump_hlo_as_text --xla_dump_to=<dir>"` dumps final HLO —
+  the ground truth on what fused. **Compile cache**: tier-2
+  (`TORCH_TPU_INTERNAL_TIER2_COMPILATION_CACHE=<name>` under /dev/shm) +
+  tier-3 (`..._TIER3_COMPILATION_CACHE_ROOT=gs://...` +
+  `..._LOCAL_BACKUP_TASK=1`) persists compiled binaries ACROSS VMs —
+  the pytorch startup template wires this to the wheel-mirror bucket
+  (SA needs objectAdmin), killing the 19-70s warmup on repeat runs.
+  Graph fingerprints cover shapes + dtypes + op sequence **+ input scalar
+  values** — a changing Python scalar argument recompiles per value (keep
+  loop state in device tensors). Variable shapes: bucket them (N buckets =
+  N cold starts, then all warm); DataLoaders need `drop_last=True` or the
+  short last batch recompiles every epoch. Verify a loop is warm with
+  `torch.tpu._get_cache_stats()` (per-entry read counts + compile durations).
+- **Debugging traps & tools:** `@torch.inference_mode()` + torch.compile
+  crashes — always `@torch.no_grad()`. Only ONE process can hold the TPU
+  ("already in use by process with pid ...") — kill stray python3.12 before
+  benchmarking. Deferred execution surfaces errors at materialization
+  (`.cpu()`), not the faulting line — wrap in
+  `execution_mode.eager_mode(EagerMode.DEFER_NEVER)` (slow) to pinpoint
+  NaN/OOM. `utils.OpTracer()` audits dispatched ops — high `aten.copy_` /
+  `aten._to_copy` counts mean hidden CPU round-trips. Bug reports upstream:
+  include the Python traceback + `TORCH_SHOW_CPP_STACKTRACES=1` output.
 - **`torch.tpu` is a drop-in for `torch.cuda`** (is_available, device_count,
   current_device, manual_seed_all); AMP is `torch.amp.autocast("tpu", ...)`;
   Stream/Event APIs are dummies (XLA/PjRt orders execution). Telemetry

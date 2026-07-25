@@ -195,5 +195,19 @@ if [ "$SMOKE_OK" -eq 0 ]; then
   exit 1
 fi
 
+# Persistent compilation cache: tier-2 in shared memory (per-boot), tier-3 in
+# the project bucket (survives VM recreation — flex-start VMs are disposable
+# but compiled binaries are not cheap: 19-70s warmups measured). Entries are
+# fingerprinted by TorchTPU binary + PjRt version, so nightly bumps
+# self-invalidate. Written to /etc/environment so non-interactive SSH commands
+# (how the MCP tools and benchmarks run) inherit them; env vars lock at
+# backend init, so they must be in place before any torch import.
+if [ -n "$WHEELS_GCS" ]; then
+  echo "TORCH_TPU_INTERNAL_TIER2_COMPILATION_CACHE=tpu_tier2_cache" >> /etc/environment
+  echo "TORCH_TPU_INTERNAL_TIER3_COMPILATION_CACHE_ROOT=$WHEELS_GCS/compile-cache" >> /etc/environment
+  echo "TORCH_TPU_INTERNAL_TIER3_COMPILATION_CACHE_LOCAL_BACKUP_TASK=1" >> /etc/environment
+  echo "Compile cache enabled: tier-2 /dev/shm, tier-3 $WHEELS_GCS/compile-cache"
+fi
+
 echo "Run torch workloads with python3.12 (the system python3 stays untouched)."
 echo "TorchTPU environment ready."
