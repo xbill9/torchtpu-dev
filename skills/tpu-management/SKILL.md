@@ -250,6 +250,15 @@ serving, provision with `workload="pytorch"`:
   N cold starts, then all warm); DataLoaders need `drop_last=True` or the
   short last batch recompiles every epoch. Verify a loop is warm with
   `torch.tpu._get_cache_stats()` (per-entry read counts + compile durations).
+- **Execution modes** (`torch_tpu._internal.execution_mode`): default is
+  Strict Eager (`DEFER_NEVER`, async one-op dispatch);
+  `DEFER_NEVER_AND_LAUNCH_BLOCKING` (`TPU_LAUNCH_BLOCKING=1`) is the
+  CUDA_LAUNCH_BLOCKING equivalent for debugging; **`DEFER_AND_FUSE`**
+  (`TPU_DEFER_AND_FUSE=1`) groups ops for cross-op XLA fusion — 2.3× on
+  elementwise chains per the docs, and the main lever for eager-only paths
+  like HF `generate()` that torch.compile can't capture. Materialization
+  triggers (force execution even when fused): `.item()`, `.cpu()`,
+  `.tolist()`, `print(tensor)`, data-dependent control flow.
 - **Debugging traps & tools:** `@torch.inference_mode()` + torch.compile
   crashes — always `@torch.no_grad()`. Only ONE process can hold the TPU
   ("already in use by process with pid ...") — kill stray python3.12 before
