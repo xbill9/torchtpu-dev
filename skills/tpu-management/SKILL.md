@@ -215,6 +215,15 @@ serving, provision with `workload="pytorch"`:
 - **Align shapes to the MXU:** batch sizes and tensor dims in multiples of
   128 (or at least 8/16) so they tile the Matrix Multiply Unit cleanly.
 - **Prefer `torch.bfloat16`** — native on the MXU; float32 is emulated.
+- **Attention:** `F.scaled_dot_product_attention` only has a fast path on TPU
+  when the FLASH_ATTENTION conditions are met (the fused kernel wants seq
+  lengths divisible by 512); otherwise it falls back to slow MATH. The
+  official ViT tutorial hand-rolls attention instead — do the same, or shape
+  buffers to hit the fast path. (Training with SDPA's fast path wants fp32 —
+  a documented exception to the bf16 rule.)
+- **Training works** (backward + optimizers, eager): accumulate loss
+  on-device via `loss.detach()` and materialize with ONE `.item()` per epoch
+  — per-step host syncs stall the TPU pipeline.
 - **Quantization is DIY:** no turnkey int8/torchao path yet — quantized ops are
   authored as custom ops or Pallas kernels (see `examples/ops_and_kernels/qat_linear.py`
   and the quant notebooks in the torch_tpu repo).
