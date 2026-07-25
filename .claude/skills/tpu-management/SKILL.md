@@ -224,6 +224,18 @@ serving, provision with `workload="pytorch"`:
 - **Training works** (backward + optimizers, eager): accumulate loss
   on-device via `loss.detach()` and materialize with ONE `.item()` per epoch
   — per-step host syncs stall the TPU pipeline.
+- **`torch.compile` requires `dynamic=False`** (dynamic=True/None unsupported;
+  official guide). Any input-shape change triggers a full recompile (minutes)
+  — keep every compiled-region tensor dimension constant and pad/slice
+  OUTSIDE the compiled region (the static-buffer decode loop pattern).
+  Allocate scratch models/tensors directly on-device with
+  `with torch.device("tpu"):` instead of CPU-init + transfer.
+- **Numerical parity checks:** use `torch_tpu._internal.utils.utils.assert_close`
+  (STRICT mode default; failure reports suggest exact rtol/atol). Sync weights
+  via `state_dict` first, compare same dtype to same dtype (bf16-TPU vs
+  bf16-CPU — never vs fp32), baseline bf16 tolerance rtol=1.6e-2/atol=1e-5.
+  Triage: >70% mismatched elements usually means benign fusion/precision
+  drift; sparse large outliers point to a real logic bug.
 - **Quantization is DIY:** no turnkey int8/torchao path yet — quantized ops are
   authored as custom ops or Pallas kernels (see `examples/ops_and_kernels/qat_linear.py`
   and the quant notebooks in the torch_tpu repo).
