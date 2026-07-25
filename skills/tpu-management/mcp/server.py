@@ -92,7 +92,10 @@ TORCH_TPU_WHEELS_GCS = os.getenv("TORCH_TPU_WHEELS_GCS", f"gs://{PROJECT_ID}-tor
 # QAT / custom-kernel work (compressed-tensors checkpoints, Pallas via jax,
 # chat templates need jinja2>=3.1). Best-effort at boot; failure is non-fatal.
 TORCH_TPU_PIP_EXTRAS = os.getenv(
-    "TORCH_TPU_PIP_EXTRAS", "transformers compressed-tensors 'jinja2>=3.1' jax"
+    "TORCH_TPU_PIP_EXTRAS",
+    # setuptools<81: tensorboard/xprof need pkg_resources (removed in 81).
+    "transformers compressed-tensors 'jinja2>=3.1' jax "
+    "'setuptools<81' xprof tensorboard-plugin-profile",
 )
 
 # find_tpu records per-zone provisioning outcomes here so later sweeps can skip

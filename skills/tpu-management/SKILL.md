@@ -230,6 +230,21 @@ serving, provision with `workload="pytorch"`:
   OUTSIDE the compiled region (the static-buffer decode loop pattern).
   Allocate scratch models/tensors directly on-device with
   `with torch.device("tpu"):` instead of CPU-init + transfer.
+- **`torch.tpu` is a drop-in for `torch.cuda`** (is_available, device_count,
+  current_device, manual_seed_all); AMP is `torch.amp.autocast("tpu", ...)`;
+  Stream/Event APIs are dummies (XLA/PjRt orders execution). Telemetry
+  (unstable): `torch.tpu._hbm_usage_summary()` for real HBM footprint,
+  `torch.tpu._get_cache_stats()` for compile-cache hits/latencies.
+- **Profiling (xProf):** `from torch_tpu._internal import profiler`, wrap
+  ~100 representative steps in `profiler.profile(activities=[CPU, TPU],
+  on_trace_ready=profiler.xprof_trace_handler(dir_name=...))` (~5–10%
+  overhead), then `tensorboard --logdir=<dir>` (needs `setuptools<81` +
+  `tensorboard-plugin-profile`; on headless VMs port-forward with
+  `gcloud compute ssh ... --tunnel-through-iap -- -L 6006:localhost:6006`).
+  The "PrivateUse1ProfilerRegistry not found / native TPU profiling disabled"
+  warning on torch < 2.12 is benign — traces still capture. Triage: gaps
+  between TPU ops = host bottleneck; short bursts = graph breaks; ideal is
+  long fused blocks and >60% MXU utilization.
 - **Numerical parity checks:** use `torch_tpu._internal.utils.utils.assert_close`
   (STRICT mode default; failure reports suggest exact rtol/atol). Sync weights
   via `state_dict` first, compare same dtype to same dtype (bf16-TPU vs
