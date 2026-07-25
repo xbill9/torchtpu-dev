@@ -219,18 +219,34 @@ serving, provision with `workload="pytorch"`:
   authored as custom ops or Pallas kernels (see `examples/ops_and_kernels/qat_linear.py`
   and the quant notebooks in the torch_tpu repo).
 
+Upstream references: [torch_tpu repo](https://github.com/google-pytorch/torch_tpu)
+(private — GDE program access), [docs](http://google-pytorch.github.io/torch_tpu/)
+(runnable Marimo notebooks; `marimo edit docs/notebooks/` on a TPU VM),
+[overview video](https://www.youtube.com/watch?v=H8SjVNB7YhM),
+[TPU Developers Hub](https://cloud.google.com/products/tpu/tpu-developer),
+["How to think about TPUs"](https://jax-ml.github.io/scaling-book/tpus/)
+(scaling book ch. 2 — MXU/VMEM/HBM mental model), and
+[Helion on TPU](https://pytorch.org/blog/helion-on-tpu-towards-hardware-heterogeneous-kernel-authoring/)
+(PyTorch kernel DSL compiling to Pallas with autotuning). TorchTPU also runs on
+**v5e** and in **Colab** TPU runtimes (per the GDE quickstart) — fallbacks when
+v6e flex capacity is tight.
+
 **Field notes (verified on a live v6e-1, Jul 2026):**
 
 - **The VM's default compute SA has no access to the torch_tpu registry** (it
   lives in Google's `ml-oss-artifacts-transient` project — no IAM grant
-  possible from your side), so the startup script's pip step fails with
-  "No matching distribution found for torch_tpu". Workaround: finish the
-  install over SSH with a user-identity token piped via stdin:
-  `gcloud auth print-access-token | gcloud compute ssh <vm> --tunnel-through-iap
-  --command 'cat >/tmp/t; sudo python3.12 -m pip install --pre
-  --break-system-packages --index-url
-  "https://oauth2accesstoken:$(cat /tmp/t)@<TORCH_TPU_INDEX>" torch_tpu; rm /tmp/t'`.
-  Long-term fix: mirror the wheels into your own Artifact Registry.
+  possible from your side). Fixed by the **GCS wheel mirror**: the startup
+  script first installs from `TORCH_TPU_WHEELS_GCS` (default
+  `gs://<project>-torchtpu-wheels`; grant the compute SA
+  `roles/storage.objectViewer`), and only falls back to the authenticated
+  index. Refresh the mirror with a user-token
+  `pip download --pre --no-deps --only-binary=:all: --python-version 3.12
+  --platform manylinux_2_31_x86_64` of `torch_tpu==<nightly>` (torch_tpu wheels
+  are tagged `manylinux_2_31`; the torch base wheel is `manylinux_2_28`; an
+  unpinned request resolves a useless 919-byte `0.0.0` stub) plus
+  `torch==2.11.0+cpu`, then `gcloud storage cp` both to the bucket. If neither
+  path works, the last resort is the manual install over IAP SSH with a
+  user-identity token piped via stdin.
 - **The torch_tpu wheel's `torch` dependency is unpinned**, so pip resolves the
   newest CPU torch (2.13) and the extension fails to load with
   `undefined symbol: ...torch...autograd...deleteNode...`. The Jul 2026
