@@ -238,7 +238,12 @@ serving, provision with `workload="pytorch"`:
   Tuning: `TORCH_TPU_INTERNAL_XLA_OPTIONS=xla_optimization_level=O[0-3]`
   (O2 default; O3 slower compile, maybe faster steps);
   `XLA_FLAGS="--xla_dump_hlo_as_text --xla_dump_to=<dir>"` dumps final HLO —
-  the ground truth on what fused. **Compile cache**: tier-2
+  the ground truth on what fused. One level deeper, the LLO (hardware-op)
+  dump needs the flags in BOTH places:
+  `LIBTPU_INIT_ARGS="--xla_jf_dump_to=<dir> --xla_jf_dump_llo_text=true"`
+  AND appended to `sys.argv` before torch init. Pipeline for orientation:
+  Python → ATen → StableHLO (TorchTPU's hand-off) → HLO (+passes) → LLO
+  (+hardware passes). **Compile cache**: tier-2
   (`TORCH_TPU_INTERNAL_TIER2_COMPILATION_CACHE=<name>` under /dev/shm) +
   tier-3 (`..._TIER3_COMPILATION_CACHE_ROOT=gs://...` +
   `..._LOCAL_BACKUP_TASK=1`) persists compiled binaries ACROSS VMs —
