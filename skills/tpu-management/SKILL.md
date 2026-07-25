@@ -239,6 +239,12 @@ serving, provision with `workload="pytorch"`:
 - **Quantization is DIY:** no turnkey int8/torchao path yet — quantized ops are
   authored as custom ops or Pallas kernels (see `examples/ops_and_kernels/qat_linear.py`
   and the quant notebooks in the torch_tpu repo).
+- **Custom Pallas kernels:** `pip install jax`, then wrap a type-annotated JAX
+  fn (containing `pl.pallas_call`) with `pallas.jax_op("ns::name", fn)` from
+  `torch_tpu._internal.pallas` — upstream says that import will likely move to
+  `torch_tpu.experimental`, so try that if it breaks. jax_op auto-registers a
+  custom op + fake impl, so it composes with `torch.compile(backend="tpu")`;
+  training needs a backward jax_op wired via `register_autograd`.
 
 Upstream references: [torch_tpu repo](https://github.com/google-pytorch/torch_tpu)
 (private — GDE program access), [docs](http://google-pytorch.github.io/torch_tpu/)
