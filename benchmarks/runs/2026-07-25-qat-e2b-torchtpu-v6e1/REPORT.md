@@ -361,3 +361,21 @@ real weights) compiled with backend="tpu", dynamic=False:
   and per-stream (54.4) beats even bf16 no-cache b1 (45.2).
 - Prefill/decode split: 46 ms compiled prefill vs the old design's
   in-loop prompt recompute.
+
+## Step 11 — context scaling: the cache's raison d'etre (12B int8, fresh VM)
+
+| batch 1 | 256 ctx | 1024 ctx |
+|---|---|---|
+| no-cache | 44.3 tok/s (22.6 ms) | 17.9 tok/s (55.9 ms) — 2.5x worse |
+| cached port | 36.8 (27.1 ms) | **36.1 (27.7 ms) — flat** |
+
+| batch 4 | 256 ctx | 1024 ctx |
+|---|---|---|
+| no-cache | 66.5 agg | **UNCOMPILABLE** — whole-x VMEM 139.4 M > 127.9 M physical |
+| cached port | 217.4 agg | 178.4 agg (22.4 ms/step) |
+
+No-cache cost grows linearly-plus with context (and its whole-x kernel
+block grows past physical VMEM at batch x context = 4096 rows); cached
+decode is flat (+0.6 ms for 4x context = the attention read over the
+longer cache). Crossover at batch 1 sits just past 256 ctx; at any real
+context or batch the cache is not an optimization but a requirement.
