@@ -126,3 +126,45 @@ The kernel is VPU-bound on nibble extraction, not bandwidth-bound.
 
 Even as-is: 28.3 tok/s at ~10 GB HBM beats 19.3, and the freed ~16 GB
 enables the KV-cache/batch work.
+
+## Step 4 — zero-code-change sweep (2026-07-26, same VM + fresh vm2)
+
+All three doc-derived free knobs measured on E2B qat-unquantized. **None
+helps; the wins are structural.**
+
+| Experiment | Result | Baseline | Verdict |
+|---|---|---|---|
+| `TPU_DEFER_AND_FUSE=1` on eager HF generate | 0.5 tok/s (10,398 compile reqs / 55 tok, 84% hits) | 3.4 tok/s plain eager | ❌ 7× WORSE — generate's shapes change every step; each fused group is a fresh fingerprint. Static-shape eager chains only. |
+| `--seq 512` compiled decode (fused-SDPA attempt) | 194.2 tok/s (5.1 ms/step) | 227.6 @ SEQ=256 | ❌ Fused FLASH_ATTENTION still skipped — failing condition is **`attn_mask is None (current: present)`**, not seq length. HF forward always passes a mask ⇒ fused SDPA is unreachable from stock HF models. Mask-free `is_causal` attention goes on the gemma4-port feature list. |
+| `TORCH_TPU_INTERNAL_XLA_OPTIONS=xla_optimization_level=O3` | 226.9 tok/s (4.4 ms/step) | 227.6 | ➖ No change; O2 default already saturates this graph. |
+
+**Startup template first live boot (torchtpu-vm2):** whole startup **1 m 35 s**
+(vs ~10 min AR-path), mirror install + extras + smoke test green, and the
+tier-3 compile cache confirmed writing `.bin` entries to
+`gs://comglitn-torchtpu-wheels/compile-cache/8a5b7822779ee13a/` from an SSH
+workload. (Startup smoke test itself runs cache-cold — env vars are written
+to /etc/environment after it.)
+
+## Step 5 — lockstep scaling + the 31B single-chip fit (2026-07-26)
+
+**Lockstep batch=4, E2B bf16 (SEQ=256):** 450.5 tok/s aggregate at
+8.9 ms/step vs 227.6 tok/s / 4.4 ms at batch 1 — 4 streams for 2.0× the
+step cost (1.98× aggregate). Confirms the amortization thesis: per-step,
+batch-independent costs (the fused kernel's ~14 ms/step unpack on 12B)
+divide by the stream count.
+
+**gemma-4-31B-it-qat-w4a16-ct FITS AND RUNS on one v6e-1** (fresh vm2,
+in-graph dequant W4A16Linear, first try):
+
+| metric | value |
+|---|---|
+| Linears swapped | 410 |
+| packed+scale HBM | **16.47 GB** (bf16 would be 58.57 GB — impossible on a 32 GB chip) |
+| dequant parity | max abs diff **0.0** vs compressed-tensors reference (CPU and TPU) |
+| warmup (incl. compile) | 77.4 s |
+| compiled decode | 4.6 tok/s (217.6 ms/step) |
+
+In-graph dequant is the wrong side of the crossover at this size (it
+re-materializes ~29 G weights in bf16 every step); the fused Pallas kernel
+run is the follow-up. The headline stands regardless: the biggest dense
+Gemma 4 QAT checkpoint is single-chip-servable on TorchTPU.

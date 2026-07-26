@@ -289,7 +289,11 @@ serving, provision with `workload="pytorch"`:
   ops on autograd.Function in PyTorch 2.x. Bug reports upstream:
   include the Python traceback + `TORCH_SHOW_CPP_STACKTRACES=1` output.
 - **`torch.tpu` is a drop-in for `torch.cuda`** (is_available, device_count,
-  current_device, manual_seed_all); AMP is `torch.amp.autocast("tpu", ...)`;
+  current_device, manual_seed_all); the docs' device-agnostic selector is
+  `torch.accelerator.current_accelerator()` (returns the tpu device);
+  `torch_tpu._internal.utils.log_utils.log_to_stderr()` routes runtime glog
+  to stderr (also silences "Could not open log file /tmp/tpu_logs" noise
+  when that dir is root-owned); AMP is `torch.amp.autocast("tpu", ...)`;
   Stream/Event APIs are dummies (XLA/PjRt orders execution). Telemetry
   (unstable): `torch.tpu._hbm_usage_summary()` for real HBM footprint,
   `torch.tpu._get_cache_stats()` for compile-cache hits/latencies.
