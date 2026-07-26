@@ -321,3 +321,14 @@ fused-int4-compact): 11.4 tok/s (87.7 ms/step) — new single-chip record**
 (9.2 all-fused rep4 -> 10.2 hybrid rep4 8 GB -> 11.4 hybrid compact 17 GB).
 Fit math with compact scales: resident ≈ 16.5 + 0.47 x budget_GB;
 17 GB -> ~24.5 GB Linears, loads clean.
+
+**Hybrid v2 at batch 4: stays behind all-fused.** 96 MB limit: 15.9 agg
+(252.3 ms); corrected to the 64 MB limit (compact blocks fit): 17.9 agg
+(223.8 ms) — vs all-fused rep4's 24.0. Closing rule of the whole design
+space: **batch amortizes unpack, so batch >= 4 is bandwidth-bound and
+packed int4 (fewest bytes) wins; batch 1 is VPU-bound and int8 wins.**
+Untested cell: all-fused COMPACT at b4 (might edge 24.0 via scale-byte
+savings; next session).
+
+FINAL 31B single-chip: **11.4 tok/s b1** (hybrid v2 compact, 17 GB budget)
+/ **24.0 tok/s aggregate b4** (all-fused rep4).
