@@ -340,3 +340,24 @@ costs more VPU than the 0.19 B/elem byte saving returns. Compact scales
 are a MEMORY unlock (they bought the int8 coverage behind the 11.4 b1
 record), not a speed play. Benchmark matrix now fully closed:
 **31B b1 crown = 11.4 (hybrid compact), b4 crown = 24.0 (all-fused rep4).**
+
+## Step 10 — the KV-cached port on real TPU (session C, `ports/gemma4/tpu_bench.py`)
+
+The clean-room port (bitwise HF parity) + static KV cache + real 12B ct
+weights (328/328 Linears -> Int8W4A16Linear; ZERO port changes needed for
+real weights) compiled with backend="tpu", dynamic=False:
+
+| 12B config | b1 | b4 aggregate | prefill (128 tok) |
+|---|---|---|---|
+| no-cache int8 (old record) | 44.3 tok/s (22.6 ms) | 66.5 tok/s | n/a (in-loop) |
+| **cached port, int8** | 36.8 (27.1 ms) | **217.4 (18.4 ms/step)** | **46 ms compiled** |
+
+- Cached b1 sits BELOW no-cache: at MAX_SEQ=256 decode is weight-bandwidth
+  bound (13.6 GB read/step either way) and 1-row matmuls waste tiling the
+  256-row full-buffer got free. steps_per_call=8: no change (not
+  launch-bound).
+- Cached b4 is the payoff: weights are read once per step regardless of
+  batch, so 4 streams cost 18.4 ms total — **3.3x the aggregate record**,
+  and per-stream (54.4) beats even bf16 no-cache b1 (45.2).
+- Prefill/decode split: 46 ms compiled prefill vs the old design's
+  in-loop prompt recompute.
