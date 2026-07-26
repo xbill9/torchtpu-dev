@@ -183,3 +183,28 @@ fused (9.2). Cost model from the two points: ~90 ms fixed (unpack +
 per-call overhead) + ~19 ms/stream → batch 8 ≈ 33 tok/s if the down_proj
 activation block (~88 MB at batch 8) clears the 96 MB scoped-VMEM notch.
 The bench script now takes batch as argv[2].
+
+**Batch scaling curve, fused 31B** (whole-x kernel, scoped VMEM as noted):
+
+| batch | scoped VMEM | ms/step | tok/s aggregate | note |
+|---|---|---|---|---|
+| 1 | 64 MB | 109.0 | 9.2 | |
+| 4 | 64 MB | 166.9 | **24.0** | sweet spot so far |
+| 8 | 96 MB | — | — | CompileTimeScopedVmemOom: needs 97.75 MB (x block 88 MB) |
+| 6 | 96 MB | 302.2 | 19.9 | also regresses |
+| 8 | 104 MB | 398.8 | 20.1 | compiles but REGRESSES — no VMEM left for pipelining |
+
+Batches 6 and 8 break the linear cost model (~90 ms fixed + ~19 ms/stream):
+the scoped-VMEM limit must grow to hold the whole x block, and every MB
+given to scoped allocation comes out of the pipeline-buffer pool (128 MB
+physical − scoped limit). Batch 4 at the default-ish 64 MB split is the
+whole-x design's peak on 31B: **24.0 tok/s aggregate is the number**.
+Pushing further needs the S-tiled grid (tile x rows, accept re-unpacking
+per S-tile) or int8-stored weights.
+
+**Fused 12B + lockstep batch 4 (closing run): 56.5 tok/s aggregate**
+(14.1/stream, 70.8 ms/step, 64 MB scoped VMEM — x block 31 MB, full
+pipelining headroom). Marginal cost ~11.8 ms/stream over the 35.4 ms
+single-stream base. **Packed int4 12B at batch 4 out-throughputs bf16
+single-stream (45.2 tok/s) by 25% at ~1/3 the HBM (~10 GB vs 26 GB).**
+The memory-win and the throughput-win now point the same direction.
