@@ -405,3 +405,21 @@ Linears, 4.97 GB. **b1 = 73.9 tok/s (13.5 ms) — beats the old E4B record
 (106.8/stream, 9.4 ms/step) — 3.6x the old fused-b4 record (118.9).
 Cached matrix now measured for E2B/E4B/12B; 31B cached remains the one
 open cell.
+
+## Step 13 — 26B-A4B MoE on a single v6e-1 (first ever; `tpu_bench_moe.py`)
+
+No packed checkpoint exists — the bf16 QAT masters
+(qat-q4_0-unquantized, 52 GB) were DIY-quantized at load: 30 layers
+swapped to W4A16Experts (int4 g32, ct layout), 34 s quantization pass,
+peak host RAM 114.9 GB. HBM weight footprint **17.64 GB** (12.85 int4
+experts + 4.79 bf16 non-expert). The static gather+bmm expert dispatch
+compiled on real TPU (backend="tpu") without modification.
+
+**batch 1: 122.5 tok/s (8.2 ms/step)** — second-fastest single-stream
+config in the family (only ~1/16 of expert bytes touched per token).
+Compiled prefill exec 711 ms / 128 tok. Decoded text fully coherent —
+the DIY quantization + router wiring validated end to end on real
+weights. KV cache: 0.06 GB.
+
+With this, all four Gemma 4 architectures (E2B, E4B, 12B, 31B dense,
+26B MoE) run w4a16-quantized on single v6e-1 chips through the port.
