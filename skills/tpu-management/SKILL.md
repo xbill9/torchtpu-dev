@@ -249,6 +249,13 @@ serving, provision with `workload="pytorch"`:
   `..._LOCAL_BACKUP_TASK=1`) persists compiled binaries ACROSS VMs —
   the pytorch startup template wires this to the wheel-mirror bucket
   (SA needs objectAdmin), killing the 19-70s warmup on repeat runs.
+  **Verified live 2026-07-26** (first boot of the mirror-first template):
+  whole startup 1m35s (vs ~10 min via AR), smoke test green, and SSH
+  workloads inherit the /etc/environment vars — tier-3 `.bin` entries
+  confirmed landing under `compile-cache/<binary-fingerprint>/` in the
+  bucket. Note the startup smoke test itself runs cache-cold (env vars are
+  written after it), and the runtime logs "Tier-2 compilation cache is
+  disabled for world size 1" when the env var is absent.
   Graph fingerprints cover shapes + dtypes + op sequence **+ input scalar
   values** — a changing Python scalar argument recompiles per value (keep
   loop state in device tensors). Variable shapes: bucket them (N buckets =
@@ -260,8 +267,11 @@ serving, provision with `workload="pytorch"`:
   `DEFER_NEVER_AND_LAUNCH_BLOCKING` (`TPU_LAUNCH_BLOCKING=1`) is the
   CUDA_LAUNCH_BLOCKING equivalent for debugging; **`DEFER_AND_FUSE`**
   (`TPU_DEFER_AND_FUSE=1`) groups ops for cross-op XLA fusion — 2.3× on
-  elementwise chains per the docs, and the main lever for eager-only paths
-  like HF `generate()` that torch.compile can't capture. Materialization
+  elementwise chains per the docs. **Measured 2026-07-26: do NOT use it on
+  HF `generate()`** — autoregressive decode changes shapes every step, so
+  every fused group is a fresh compile fingerprint (E2B: 0.5 tok/s vs the
+  3.4 tok/s plain-eager baseline, 10k compile requests for 55 tokens). It
+  only pays on static-shape eager chains. Materialization
   triggers (force execution even when fused): `.item()`, `.cpu()`,
   `.tolist()`, `print(tensor)`, data-dependent control flow.
 - **Debugging traps & tools:** `@torch.inference_mode()` + torch.compile
