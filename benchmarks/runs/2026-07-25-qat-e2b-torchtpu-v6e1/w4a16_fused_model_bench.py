@@ -18,6 +18,7 @@ from jax.experimental import pallas as pl
 from torch_tpu._internal import pallas
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "google/gemma-4-12B-it-qat-w4a16-ct"
+BATCH = int(sys.argv[2]) if len(sys.argv) > 2 else 1  # lockstep streams, same prompt
 PROMPT = "Explain in two sentences why TPUs are fast."
 GROUP = 32
 SEQ = 256
@@ -149,13 +150,13 @@ def main() -> int:
     )["input_ids"]
     n_prompt = ids.shape[1]
     pad_id = tokenizer.pad_token_id or 0
-    tokens = torch.full((1, SEQ), pad_id, dtype=torch.long)
+    tokens = torch.full((BATCH, SEQ), pad_id, dtype=torch.long)
     tokens[:, :n_prompt] = ids[0]
     tokens = tokens.to(device)
-    mask = torch.zeros((1, SEQ), dtype=torch.long)
+    mask = torch.zeros((BATCH, SEQ), dtype=torch.long)
     mask[:, :n_prompt] = 1
     mask = mask.to(device)
-    one = torch.ones((1, 1), dtype=torch.long).to(device)
+    one = torch.ones((BATCH, 1), dtype=torch.long).to(device)
     pos = torch.tensor([n_prompt], dtype=torch.long).to(device)
 
     def step(tokens, mask, last_idx):
@@ -191,8 +192,9 @@ def main() -> int:
     print("--- output " + "-" * 49)
     print(text.strip())
     print("-" * 60)
-    print(f"MARKER FUSED w4a16 compiled decode (SEQ={SEQ}, no KV cache): "
-          f"{BENCH_STEPS} steps in {elapsed:.2f}s = {BENCH_STEPS / elapsed:.1f} tok/s "
+    print(f"MARKER FUSED w4a16 compiled decode (SEQ={SEQ}, batch={BATCH}, no KV cache): "
+          f"{BENCH_STEPS} steps in {elapsed:.2f}s = {BENCH_STEPS / elapsed:.1f} tok/s/stream, "
+          f"{BATCH * BENCH_STEPS / elapsed:.1f} tok/s aggregate "
           f"({1000 * elapsed / BENCH_STEPS:.1f} ms/step)")
     return 0
 

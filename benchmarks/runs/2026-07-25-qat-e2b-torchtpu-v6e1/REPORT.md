@@ -175,3 +175,11 @@ Output text coherent. Consistent with the VPU-bound model: ~29 G weights /
 11 G × the 12B kernel's ~35 ms ≈ 93 ms predicted, 109 observed. With
 lockstep batch 4 (unpack amortizes, per the 1.98×-at-2×-cost E2B data)
 a ~25-35 tok/s aggregate 31B single-chip server is the projected next stop.
+
+**Fused 31B + lockstep batch 4 (host-loop patch, kernel unchanged):
+24.0 tok/s aggregate** (6.0/stream, 166.9 ms/step, 64 MB scoped VMEM).
+4 streams for 1.53× the step cost = 2.6× aggregate over single-stream
+fused (9.2). Cost model from the two points: ~90 ms fixed (unpack +
+per-call overhead) + ~19 ms/stream → batch 8 ≈ 33 tok/s if the down_proj
+activation block (~88 MB at batch 8) clears the 96 MB scoped-VMEM notch.
+The bench script now takes batch as argv[2].
