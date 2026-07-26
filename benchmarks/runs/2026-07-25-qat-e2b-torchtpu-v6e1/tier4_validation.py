@@ -104,13 +104,16 @@ def ppl(variant: str, text_path: str) -> int:
     device = torch.device("tpu")
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL)
     ids = tokenizer(open(text_path, encoding="utf-8", errors="ignore").read(),
-                    return_tensors="pt")["input_ids"][0]
-    n_win = min(N_WINDOWS, ids.shape[0] // SEQ)
-    print(f"MARKER ppl-{variant}: {ids.shape[0]} tokens -> {n_win} windows of {SEQ}")
+                    return_tensors="pt", add_special_tokens=False)["input_ids"][0]
+    # Gemma is BOS-sensitive: every window must start with BOS or nll is garbage.
+    stride = SEQ - 1
+    n_win = min(N_WINDOWS, ids.shape[0] // stride)
+    bos = torch.tensor([tokenizer.bos_token_id], dtype=ids.dtype)
+    print(f"MARKER ppl-{variant}: {ids.shape[0]} tokens -> {n_win} BOS-led windows of {SEQ}")
 
     model = load_model(variant).to(device).eval()
     try:
-        print(f"MARKER hbm after load:\n{torch.tpu._hbm_usage_summary()}")
+        print(f"MARKER hbm after load: {torch.tpu._hbm_usage_summary()!r}")
     except Exception as e:
         print(f"MARKER hbm summary unavailable: {e}")
 
@@ -126,7 +129,8 @@ def ppl(variant: str, text_path: str) -> int:
     t0 = time.monotonic()
     with torch.no_grad():
         for w in range(n_win):
-            window = ids[w * SEQ:(w + 1) * SEQ].unsqueeze(0).to(device)
+            chunk = ids[w * stride:(w + 1) * stride]
+            window = torch.cat([bos, chunk]).unsqueeze(0).to(device)
             total += nll_c(window).cpu().item()
             count += SEQ - 1
     import math

@@ -273,3 +273,26 @@ New ranking for 12B-class: int8-stored > bf16 (memory) > fused int4
 with today's kernels: 10.2 b1 / 24.0 aggregate b4. Next memory lever:
 store scales unexpanded (frees 5.5 GB on 31B → roughly doubles the int8
 budget → ~11 tok/s, and more once the kernel reads compact scales).
+
+## Step 8 — tier-4 validation pass (2026-07-26, `tier4_validation.py` / `tier4_xprof.py`)
+
+**Parity (official harness):** all four extreme shapes (12B + 31B
+geometries) × both production kernels (fused-int4, int8-stored) PASS
+`torch_tpu._internal.utils.utils.assert_close` STRICT — 8/8, zero failures.
+
+**Perplexity (quality-neutrality):** 12B int8-swapped vs dequantized-bf16
+target on identical BOS-led 256-token windows (40 windows, 10,200 scored
+tokens, raw literary text): nll/tok **6.86799 vs 6.86737** (PPL 961.0 vs
+960.4) — a 0.009% delta. The packed path is quality-neutral end to end.
+(Absolute PPL is it-model-on-raw-text scale; the delta is the claim.
+Methodology note: Gemma windows MUST start with BOS — without it both
+variants score nll ~10.2.)
+
+**xProf:** 50-step trace of int8 12B batch-4 decode captured (110.7 ms/step
+under ~1.8x tracing overhead); archived at
+`gs://comglitn-torchtpu-wheels/traces/xprof_trace_12b_int8_b4` for
+tensorboard analysis.
+
+**Telemetry caveat:** `torch.tpu._hbm_usage_summary()` reports only
+compilation-cache HBM ("0B for 0 executables" pre-compile), not total
+model footprint — byte-count estimates remain our memory source.
