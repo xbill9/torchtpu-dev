@@ -87,10 +87,13 @@ def load_model(variant: str):
             n += 1
         print(f"MARKER ppl-{variant}: swapped {n} Linears")
     else:
-        from compressed_tensors.quantization import CompressedTensorsConfig  # noqa: F401
+        try:
+            CTConfig = transformers.CompressedTensorsConfig
+        except AttributeError:
+            from transformers.utils.quantization_config import CompressedTensorsConfig as CTConfig
         model = transformers.AutoModelForCausalLM.from_pretrained(
             MODEL, torch_dtype=torch.bfloat16,
-            quantization_config=transformers.CompressedTensorsConfig(run_compressed=False),
+            quantization_config=CTConfig(run_compressed=False),
         )
         print("MARKER ppl-bf16: loaded dequantized (numerically the target model)")
     return model
@@ -134,6 +137,9 @@ def ppl(variant: str, text_path: str) -> int:
 
 if __name__ == "__main__":
     mode = sys.argv[1]
+    text_path = sys.argv[2] if len(sys.argv) > 2 else None
+    # The bench modules parse sys.argv at import time — hand them a bare argv.
+    sys.argv = sys.argv[:1]
     if mode == "parity":
         raise SystemExit(parity())
-    raise SystemExit(ppl(mode.removeprefix("ppl-"), sys.argv[2]))
+    raise SystemExit(ppl(mode.removeprefix("ppl-"), text_path))
