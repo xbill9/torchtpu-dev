@@ -296,3 +296,12 @@ tensorboard analysis.
 **Telemetry caveat:** `torch.tpu._hbm_usage_summary()` reports only
 compilation-cache HBM ("0B for 0 executables" pre-compile), not total
 model footprint — byte-count estimates remain our memory source.
+
+**Tier-1 int8 IN-GRAPH variant (`w4a16_int8_ingraph_bench.py`) — NEGATIVE:**
+E2B 116.5 tok/s (8.6 ms) vs int4 in-graph 157.5; E4B 61.8 (16.2 ms) vs
+72.4. In-graph is bandwidth-bound: XLA materializes the bf16 temp either
+way, so int8's 2x-larger weight reads only add traffic. Completes the
+symmetric rule: **in-graph path -> int4 (bandwidth-bound); Pallas kernel
+path -> int8 (VPU-bound).** Final per-model best configs:
+E2B int4-in-graph 157.5 | E4B int4-in-graph 72.4 |
+12B int8-fused 44.3 (66.5 agg b4) | 31B hybrid 10.2 (24.0 agg b4 fused).
