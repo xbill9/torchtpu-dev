@@ -247,3 +247,20 @@ the pipeline-buffer pool whether used or not (the batch-4 kernel needs only
 keep the scoped limit at the minimum that fits; scale batch via an S-tiled
 grid at 64 MB, not by growing the whole-x block. Bonus datapoint: tier-3
 GCS cache halved warmup between runs (84.3 s cold -> 36.6 s).
+
+## Step 7 — int8-stored weights at model level (`w4a16_int8_model_bench.py`)
+
+Load-time int4→int8 conversion (7.7 s, plane-permuted layout so the kernel
+does only convert+scale+dot — zero nibble work). 12B, 328/328 layers:
+
+| 12B config | HBM (Linears) | b1 | b4 aggregate |
+|---|---|---|---|
+| bf16 | 26 GB | 45.2 tok/s (22.1 ms) | — |
+| fused int4 | ~10 GB | 28.3 tok/s (35.4 ms) | 56.5 tok/s (70.8 ms) |
+| **int8-stored** | **13.62 GB** | **44.3 tok/s (22.6 ms)** | **66.5 tok/s (60.2 ms)** |
+
+int8-stored reaches bf16-parity speed (−2%) at half the memory; the
+kernel-level ~25% prediction understated the model-level win (36%).
+New ranking for 12B-class: int8-stored > bf16 (memory) > fused int4
+(only when HBM is the binding constraint). 31B pure-int8 doesn't fit
+(29.6 GB weights); hybrid int8/int4 split is the follow-up.
