@@ -305,3 +305,19 @@ symmetric rule: **in-graph path -> int4 (bandwidth-bound); Pallas kernel
 path -> int8 (VPU-bound).** Final per-model best configs:
 E2B int4-in-graph 157.5 | E4B int4-in-graph 72.4 |
 12B int8-fused 44.3 (66.5 agg b4) | 31B hybrid 10.2 (24.0 agg b4 fused).
+
+## Step 9 — compact-scale kernels + hybrid v2 (`w4a16_compact_debug.py`, `w4a16_hybrid_v2_bench.py`)
+
+Scales stored at natural [O, K/32] (0.0625 B/elem) instead of rep4's
+0.25 B/elem: the column permutation gains one more level — within each
+chunk, int32 columns reorder from m=4q+r to (r, q), making the group index
+q independent of both plane i and r, so the compact scale block expands
+with two nested lane-concats (concat x4 over r, then x8 over i). No
+repeat_interleave, no relayout. 8/8 numerics PASS; per-layer timing mixed
+vs rep4 (up to +30% on some shapes) — but model-level coverage wins:
+
+**31B hybrid v2 (17 GB int8 budget, 227/410 layers int8-compact, rest
+fused-int4-compact): 11.4 tok/s (87.7 ms/step) — new single-chip record**
+(9.2 all-fused rep4 -> 10.2 hybrid rep4 8 GB -> 11.4 hybrid compact 17 GB).
+Fit math with compact scales: resident ≈ 16.5 + 0.47 x budget_GB;
+17 GB -> ~24.5 GB Linears, loads clean.
