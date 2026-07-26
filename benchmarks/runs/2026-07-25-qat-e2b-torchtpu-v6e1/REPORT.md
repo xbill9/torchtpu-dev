@@ -332,3 +332,11 @@ savings; next session).
 
 FINAL 31B single-chip: **11.4 tok/s b1** (hybrid v2 compact, 17 GB budget)
 / **24.0 tok/s aggregate b4** (all-fused rep4).
+
+**Last open cell — all-fused-COMPACT 31B (budget 0): loses to rep4 at both
+batches** (b1 116.3 vs 109.0 ms; b4 226.5 vs 166.9). The two-level scale
+expansion (concat x4 then x8 = 32 narrow lane-concats vs rep4's 8 wide)
+costs more VPU than the 0.19 B/elem byte saving returns. Compact scales
+are a MEMORY unlock (they bought the int8 coverage behind the 11.4 b1
+record), not a speed play. Benchmark matrix now fully closed:
+**31B b1 crown = 11.4 (hybrid compact), b4 crown = 24.0 (all-fused rep4).**

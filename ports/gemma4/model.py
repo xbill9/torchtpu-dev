@@ -9,7 +9,23 @@ model:
   * every projection is a named `nn.Linear` subclass (QProjLinear, ...) so
     quantized replacements can be swapped in later by class;
   * hand-rolled eager attention with explicit causal / sliding-window masks;
-  * no KV cache — full-sequence forward only.
+  * the parity-proven no-cache full-sequence `forward()` PLUS a static-shape
+    KV-cache path (`Gemma4StaticKVCache`, `prefill()`, `decode_step()`,
+    `generate_cached()`) designed so torch.compile(backend="tpu",
+    dynamic=False) compiles exactly one prefill graph and one decode graph:
+    preallocated [B, n_kv, MAX_SEQ, D] tensors, writes via `index_copy_` with
+    a tensor index, masks built from position tensors, no data-dependent
+    Python control flow.
+
+KV-cache contents (documented choice): the cache stores K AFTER k_norm and
+AFTER RoPE, and V AFTER v_norm — i.e. exactly the per-position tensors the
+attention consumes. RoPE here depends only on a token's own absolute position
+(no relative rescaling), so post-RoPE K never needs recomputation, and caching
+post-norm makes each decode step a single-token q/k/v compute plus one
+attention over the cache. For `attention_k_eq_v` (full-attention) layers,
+which have no v_proj, the cached V is `v_norm(raw k_proj output)` — the
+pre-k_norm, pre-RoPE K passed through the scale-less v_norm, matching the
+no-cache forward bit-for-bit.
 
 Parameter names are identical to the HF `Gemma4ForCausalLM` text model
 ("model.embed_tokens.weight", "model.layers.{i}.self_attn.q_proj.weight", ...,
@@ -445,6 +461,7 @@ class Gemma4DenseAttention(nn.Module):
         if self.use_alternative_attention
         else config.num_key_value_heads
     )
+    self.num_key_value_heads = num_key_value_heads
     self.num_key_value_groups = (
         config.num_attention_heads // num_key_value_heads
     )
@@ -521,6 +538,119 @@ class Gemma4DenseAttention(nn.Module):
     attn_output = attn_output.reshape(*input_shape, -1).contiguous()
     return self.o_proj(attn_output)
 
+  # ----- static-KV-cache path (forward() above stays the parity reference) --
+
+  def _compute_qkv(
+      self, hidden_states: torch.Tensor, position_embeddings: tuple
+  ) -> tuple:
+    """Q/K/V exactly as in forward(): returns
+
+      q: (B, H, S, D)      post q_norm, post RoPE
+      k: (B, n_kv, S, D)   post k_norm, post RoPE   <- what gets cached
+      v: (B, n_kv, S, D)   post v_norm              <- what gets cached
+                           (k_eq_v layers: v_norm of the RAW k_proj output)
+    """
+    input_shape = hidden_states.shape[:-1]
+    hidden_shape = (*input_shape, -1, self.head_dim)
+    cos, sin = position_embeddings
+
+    query_states = self.q_proj(hidden_states).view(hidden_shape)
+    query_states = self.q_norm(query_states)
+    query_states = apply_rotary_pos_emb(query_states, cos, sin)
+    query_states = query_states.transpose(1, 2)
+
+    key_states = self.k_proj(hidden_states).view(hidden_shape)
+    if self.v_proj is not None:
+      value_states = self.v_proj(hidden_states).view(hidden_shape)
+    else:
+      value_states = key_states  # attention_k_eq_v: pre-norm, pre-RoPE K
+
+    key_states = self.k_norm(key_states)
+    key_states = apply_rotary_pos_emb(key_states, cos, sin)
+    key_states = key_states.transpose(1, 2)
+
+    value_states = self.v_norm(value_states)
+    value_states = value_states.transpose(1, 2)
+    return query_states, key_states, value_states
+
+  def prefill_attention(
+      self,
+      hidden_states: torch.Tensor,
+      position_embeddings: tuple,
+      attention_mask: Optional[torch.Tensor],
+      k_cache: torch.Tensor,
+      v_cache: torch.Tensor,
+      cache_positions: torch.Tensor,
+      use_sdpa_causal: bool = True,
+  ) -> torch.Tensor:
+    """Prefill: fills cache rows `cache_positions`, attends over the prompt.
+
+    Full-attention layers (no padding, prompt at positions 0..S-1) use SDPA
+    with attn_mask=None / is_causal=True when `use_sdpa_causal` — on TPU that
+    unlocks the fused kernel. Sliding layers always use the exact exclusive
+    window mask (`attention_mask`), via eager attention.
+    """
+    input_shape = hidden_states.shape[:-1]
+    query_states, key_states, value_states = self._compute_qkv(
+        hidden_states, position_embeddings
+    )
+    k_cache.index_copy_(2, cache_positions, key_states)
+    v_cache.index_copy_(2, cache_positions, value_states)
+
+    if use_sdpa_causal and not self.is_sliding:
+      attn_output = F.scaled_dot_product_attention(
+          query_states,
+          repeat_kv(key_states, self.num_key_value_groups),
+          repeat_kv(value_states, self.num_key_value_groups),
+          attn_mask=None,
+          is_causal=True,
+          scale=self.scaling,
+      )
+      attn_output = attn_output.transpose(1, 2).contiguous()
+    else:
+      attn_output = eager_attention_forward(
+          self.num_key_value_groups,
+          query_states,
+          key_states,
+          value_states,
+          attention_mask,
+          scaling=self.scaling,
+      )
+    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+    return self.o_proj(attn_output)
+
+  def decode_attention(
+      self,
+      hidden_states: torch.Tensor,
+      position_embeddings: tuple,
+      attention_mask: torch.Tensor,
+      k_cache: torch.Tensor,
+      v_cache: torch.Tensor,
+      cache_positions: torch.Tensor,
+  ) -> torch.Tensor:
+    """Decode step: writes the new token's K/V at `cache_positions` (a (1,)
+    tensor) and attends q (S=1) over the FULL static cache; `attention_mask`
+    ((1, 1, 1, MAX_SEQ) additive) masks future and out-of-window rows, so the
+    unused cache padding contributes exactly zero after softmax.
+    """
+    input_shape = hidden_states.shape[:-1]
+    query_states, key_states, value_states = self._compute_qkv(
+        hidden_states, position_embeddings
+    )
+    k_cache.index_copy_(2, cache_positions, key_states)
+    v_cache.index_copy_(2, cache_positions, value_states)
+
+    attn_output = eager_attention_forward(
+        self.num_key_value_groups,
+        query_states,
+        k_cache,
+        v_cache,
+        attention_mask,
+        scaling=self.scaling,
+    )
+    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+    return self.o_proj(attn_output)
+
 
 class Gemma4DenseDecoderLayer(nn.Module):
   """Gemma-style sandwich-norm decoder layer with trailing layer_scalar."""
@@ -570,6 +700,96 @@ class Gemma4DenseDecoderLayer(nn.Module):
     hidden_states = hidden_states * self.layer_scalar
     return hidden_states
 
+  def _forward_cached(
+      self,
+      hidden_states: torch.Tensor,
+      position_embeddings: tuple,
+      attention_mask: Optional[torch.Tensor],
+      k_cache: torch.Tensor,
+      v_cache: torch.Tensor,
+      cache_positions: torch.Tensor,
+      is_decode: bool,
+      use_sdpa_causal: bool = True,
+  ) -> torch.Tensor:
+    """forward() with the attention swapped for the cached prefill/decode."""
+    residual = hidden_states
+    hidden_states = self.input_layernorm(hidden_states)
+    if is_decode:
+      hidden_states = self.self_attn.decode_attention(
+          hidden_states,
+          position_embeddings,
+          attention_mask,
+          k_cache,
+          v_cache,
+          cache_positions,
+      )
+    else:
+      hidden_states = self.self_attn.prefill_attention(
+          hidden_states,
+          position_embeddings,
+          attention_mask,
+          k_cache,
+          v_cache,
+          cache_positions,
+          use_sdpa_causal=use_sdpa_causal,
+      )
+    hidden_states = self.post_attention_layernorm(hidden_states)
+    hidden_states = residual + hidden_states
+
+    residual = hidden_states
+    hidden_states = self.pre_feedforward_layernorm(hidden_states)
+    hidden_states = self.mlp(hidden_states)
+    hidden_states = self.post_feedforward_layernorm(hidden_states)
+    hidden_states = residual + hidden_states
+
+    hidden_states = hidden_states * self.layer_scalar
+    return hidden_states
+
+
+# ---------------------------------------------------------------------------
+# Static KV cache
+# ---------------------------------------------------------------------------
+
+
+class Gemma4StaticKVCache:
+  """Preallocated fixed-shape KV cache for the prefill/decode path.
+
+  One (k, v) tensor pair per decoder layer, each of shape
+  [batch, n_kv_heads, max_seq_len, head_dim] with that LAYER's geometry
+  (sliding layers: num_key_value_heads x head_dim; full/k_eq_v layers:
+  num_global_key_value_heads x global_head_dim). Contents: K post-k_norm and
+  post-RoPE, V post-v_norm (see the module docstring). All writes go through
+  `index_copy_` with a position TENSOR so every shape in the graph is static.
+  """
+
+  def __init__(
+      self,
+      text_model: "Gemma4DenseTextModel",
+      batch_size: int,
+      max_seq_len: int,
+      dtype: Optional[torch.dtype] = None,
+      device: Optional[torch.device] = None,
+  ):
+    ref = text_model.embed_tokens.weight
+    dtype = ref.dtype if dtype is None else dtype
+    device = ref.device if device is None else device
+    self.batch_size = batch_size
+    self.max_seq_len = max_seq_len
+    self.k = []
+    self.v = []
+    for layer in text_model.layers:
+      attn = layer.self_attn
+      n_kv = attn.num_key_value_heads
+      shape = (batch_size, n_kv, max_seq_len, attn.head_dim)
+      self.k.append(torch.zeros(shape, dtype=dtype, device=device))
+      self.v.append(torch.zeros(shape, dtype=dtype, device=device))
+
+  def reset(self):
+    for k in self.k:
+      k.zero_()
+    for v in self.v:
+      v.zero_()
+
 
 # ---------------------------------------------------------------------------
 # Masks
@@ -612,6 +832,40 @@ def _create_sliding_window_causal_mask(
   )
   mask.masked_fill_(future_mask | past_mask, torch.finfo(dtype).min)
   return mask[None, None, :, :]
+
+
+def _create_decode_masks(
+    pos: torch.Tensor,
+    max_seq_len: int,
+    sliding_window: int,
+    dtype: torch.dtype,
+    device: torch.device,
+) -> dict:
+  """(1, 1, 1, MAX_SEQ) additive masks for a single decode step at `pos`.
+
+  `pos` is a (1,) long TENSOR (never a Python int) so the graph stays static.
+  Built purely from a positions tensor — no data-dependent control flow:
+
+    full_attention:    keep iff kv_idx <= pos                       (causal)
+    sliding_attention: keep iff kv_idx <= pos AND pos - kv_idx < window
+                       (the EXCLUSIVE Gemma4 window, self included)
+
+  Everything else — future rows AND the never-written cache padding beyond
+  the used length — gets finfo.min, which softmax turns into exactly 0.
+  """
+  kv_idx = torch.arange(max_seq_len, dtype=torch.long, device=device)
+  keep_causal = kv_idx <= pos  # (MAX_SEQ,)
+  keep_sliding = keep_causal & ((pos - kv_idx) < sliding_window)
+  zero = torch.zeros((), dtype=dtype, device=device)
+  neg = torch.full((), torch.finfo(dtype).min, dtype=dtype, device=device)
+  return {
+      "full_attention": torch.where(keep_causal, zero, neg)[
+          None, None, None, :
+      ],
+      "sliding_attention": torch.where(keep_sliding, zero, neg)[
+          None, None, None, :
+      ],
+  }
 
 
 def _apply_padding_mask(
@@ -710,6 +964,109 @@ class Gemma4DenseTextModel(nn.Module):
       return hidden_states, all_hidden_states
     return hidden_states
 
+  # ----- static-KV-cache path ---------------------------------------------
+
+  def _position_embeddings(
+      self, hidden_states: torch.Tensor, position_ids: torch.Tensor
+  ) -> dict:
+    """cos/sin per layer type; both types computed unconditionally (static)."""
+    return {
+        "sliding_attention": self.rotary_emb(
+            hidden_states, position_ids, "sliding_attention"
+        ),
+        "full_attention": self.rotary_emb(
+            hidden_states, position_ids, "full_attention"
+        ),
+    }
+
+  def prefill(
+      self,
+      input_ids: torch.Tensor,
+      cache: Gemma4StaticKVCache,
+      use_sdpa_causal: bool = True,
+  ) -> torch.Tensor:
+    """Prompt forward: fills cache positions 0..S-1, returns (B, S, hidden).
+
+    Assumes an unpadded prompt starting at position 0 (that is what makes
+    full-attention layers eligible for SDPA with is_causal=True and no mask).
+    """
+    _, seq_len = input_ids.shape
+    device = input_ids.device
+    dtype = self.embed_tokens.weight.dtype
+
+    position_ids = torch.arange(seq_len, dtype=torch.long, device=device)
+    cache_positions = position_ids  # (S,) tensor index for index_copy_
+    position_ids = position_ids.unsqueeze(0)
+
+    masks = {
+        "sliding_attention": _create_sliding_window_causal_mask(
+            seq_len, self.config.sliding_window, dtype, device
+        ),
+        "full_attention": (
+            None
+            if use_sdpa_causal
+            else _create_causal_mask(seq_len, dtype, device)
+        ),
+    }
+
+    hidden_states = self.embed_tokens(input_ids)
+    position_embeddings = self._position_embeddings(
+        hidden_states, position_ids
+    )
+
+    for layer_idx, decoder_layer in enumerate(self.layers):
+      hidden_states = decoder_layer._forward_cached(
+          hidden_states,
+          position_embeddings[decoder_layer.attention_type],
+          masks[decoder_layer.attention_type],
+          cache.k[layer_idx],
+          cache.v[layer_idx],
+          cache_positions,
+          is_decode=False,
+          use_sdpa_causal=use_sdpa_causal,
+      )
+    return self.norm(hidden_states)
+
+  def decode_step(
+      self,
+      input_ids: torch.Tensor,
+      pos: torch.Tensor,
+      cache: Gemma4StaticKVCache,
+  ) -> torch.Tensor:
+    """One decode step: `input_ids` (B, 1), `pos` a (1,) long tensor giving
+    the token's absolute position. Writes cache row `pos`, attends over the
+    full static cache with masks built from a positions tensor, returns
+    (B, 1, hidden). All shapes depend only on B, 1 and MAX_SEQ — one graph.
+    """
+    device = input_ids.device
+    dtype = self.embed_tokens.weight.dtype
+
+    position_ids = pos.view(1, 1)
+    masks = _create_decode_masks(
+        pos,
+        cache.max_seq_len,
+        self.config.sliding_window,
+        dtype,
+        device,
+    )
+
+    hidden_states = self.embed_tokens(input_ids)
+    position_embeddings = self._position_embeddings(
+        hidden_states, position_ids
+    )
+
+    for layer_idx, decoder_layer in enumerate(self.layers):
+      hidden_states = decoder_layer._forward_cached(
+          hidden_states,
+          position_embeddings[decoder_layer.attention_type],
+          masks[decoder_layer.attention_type],
+          cache.k[layer_idx],
+          cache.v[layer_idx],
+          pos,
+          is_decode=True,
+      )
+    return self.norm(hidden_states)
+
 
 class Gemma4DenseForCausalLM(nn.Module):
   """Gemma4 dense text model with tied LM head and softcapped logits."""
@@ -750,6 +1107,89 @@ class Gemma4DenseForCausalLM(nn.Module):
     if output_hidden_states:
       return logits, all_hidden_states
     return logits
+
+  # ----- static-KV-cache path ---------------------------------------------
+
+  def _cap_logits(self, logits: torch.Tensor) -> torch.Tensor:
+    if self.config.final_logit_softcapping is not None:
+      logits = logits / self.config.final_logit_softcapping
+      logits = torch.tanh(logits)
+      logits = logits * self.config.final_logit_softcapping
+    return logits
+
+  def new_kv_cache(
+      self,
+      batch_size: int,
+      max_seq_len: int,
+      dtype: Optional[torch.dtype] = None,
+      device: Optional[torch.device] = None,
+  ) -> Gemma4StaticKVCache:
+    return Gemma4StaticKVCache(
+        self.model, batch_size, max_seq_len, dtype=dtype, device=device
+    )
+
+  def prefill(
+      self,
+      input_ids: torch.Tensor,
+      cache: Gemma4StaticKVCache,
+      use_sdpa_causal: bool = True,
+  ) -> torch.Tensor:
+    """Prompt forward filling the cache; returns LAST-position logits (B, V)."""
+    hidden_states = self.model.prefill(
+        input_ids, cache, use_sdpa_causal=use_sdpa_causal
+    )
+    return self._cap_logits(self.lm_head(hidden_states[:, -1, :]))
+
+  def decode_step(
+      self,
+      input_ids: torch.Tensor,
+      pos: torch.Tensor,
+      cache: Gemma4StaticKVCache,
+  ) -> torch.Tensor:
+    """One cached decode step -> next-token logits (B, V).
+
+    `input_ids` is (B, 1) — the token at absolute position `pos`, a (1,) long
+    TENSOR. Static shapes throughout; safe for
+    torch.compile(fullgraph=True, dynamic=False).
+    """
+    hidden_states = self.model.decode_step(input_ids, pos, cache)
+    return self._cap_logits(self.lm_head(hidden_states[:, -1, :]))
+
+  @torch.no_grad()
+  def generate_cached(
+      self,
+      input_ids: torch.Tensor,
+      max_new_tokens: int,
+      max_seq_len: int,
+      use_sdpa_causal: bool = True,
+      decode_fn=None,
+  ) -> tuple:
+    """Greedy generation via prefill + decode_step.
+
+    This driver loop lives OUTSIDE the compiled forward paths (argmax /
+    concatenation here are host-side); `decode_fn` lets callers substitute a
+    torch.compile'd decode_step. Returns (tokens (B, S+N), [per-step logits]).
+    """
+    batch, prompt_len = input_ids.shape
+    device = input_ids.device
+    if decode_fn is None:
+      decode_fn = self.decode_step
+
+    cache = self.new_kv_cache(batch, max_seq_len, device=device)
+    logits = self.prefill(input_ids, cache, use_sdpa_causal=use_sdpa_causal)
+    step_logits = [logits]
+    next_token = logits.argmax(dim=-1, keepdim=True)
+    tokens = torch.cat([input_ids, next_token], dim=1)
+
+    for step in range(max_new_tokens - 1):
+      pos = torch.tensor(
+          [prompt_len + step], dtype=torch.long, device=device
+      )
+      logits = decode_fn(next_token, pos, cache)
+      step_logits.append(logits)
+      next_token = logits.argmax(dim=-1, keepdim=True)
+      tokens = torch.cat([tokens, next_token], dim=1)
+    return tokens, step_logits
 
 
 def load_hf_state_dict(
