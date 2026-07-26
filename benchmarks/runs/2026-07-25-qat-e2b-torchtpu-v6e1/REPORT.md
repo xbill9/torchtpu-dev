@@ -237,3 +237,13 @@ as predicted: ~25% faster than fused int4 on every shape, same numerics
 still applies — no relayout); (3) XLA's own tiling beats our fixed
 blk=128/ck=960 by 20-40% on the tall shape — the gap Helion autotuning
 would target.
+
+**Scoped-VMEM control experiment (31B batch 4, only the limit varied):**
+64 MB = 166.9 ms/step, 96 MB = 194.1 (+16%), 104 MB = 194.1 (warm-started
+from cache; may be the 96 MB binary — treat 96 as the second point).
+The limit alone slows the identical workload: scoped VMEM is carved out of
+the pipeline-buffer pool whether used or not (the batch-4 kernel needs only
+~52 MB). Confirms the batch-6/8 regression mechanism and the design rule:
+keep the scoped limit at the minimum that fits; scale batch via an S-tiled
+grid at 64 MB, not by growing the whole-x block. Bonus datapoint: tier-3
+GCS cache halved warmup between runs (84.3 s cold -> 36.6 s).
