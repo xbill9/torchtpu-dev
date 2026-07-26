@@ -379,3 +379,21 @@ block grows past physical VMEM at batch x context = 4096 rows); cached
 decode is flat (+0.6 ms for 4x context = the attention read over the
 longer cache). Crossover at batch 1 sits just past 256 ctx; at any real
 context or batch the cache is not an optimization but a requirement.
+
+## Step 12 — the E-series port on TPU: E2B cached (`tpu_bench_e.py`)
+
+First TPU run of the E-port (KV-shared layers aliasing cache slots +
+per-layer embeddings + double-wide MLPs), real E2B ct weights, 276/276
+Linears on the int8 kernel, 2.35 GB weights+scale — compiled first try:
+
+| E2B | b1 | b4 |
+|---|---|---|
+| best no-cache (int4 in-graph) | 157.5 tok/s | — |
+| bf16 no-cache (decode bench) | 227.6 | 450.5 agg |
+| **cached E-port, int8** | 116.6 (8.6 ms) | **809.9 agg / 202.5 per stream (4.9 ms/step)** |
+
+Same shape as 12B: cached b1 pays the 1-row toll on small layers, cached
+b4 rewrites the book — per-stream beats every prior E2B config, aggregate
+is 1.8x the bf16 b4 record at ~40% of its memory. Full port family now
+TPU-proven: dense (12B measured), E-series (E2B measured), MoE
+(parity-proven locally, TPU assembly pending).
