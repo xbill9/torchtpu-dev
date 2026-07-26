@@ -214,3 +214,26 @@ The memory-win and the throughput-win now point the same direction.
 stays on the in-graph side single-stream. Fused batch 4 = 118.9 tok/s
 aggregate (33.7 ms/step, 1.8× step cost for 4 streams). In-graph batch-4
 E4B left unmeasured (packed bench has no batch arg); likely higher still.
+
+## Step 6 — kernel component shootout (`w4a16_kernel_debug.py`, fresh VM)
+
+Four kernels, identical grid/tiling/chunked-dot structure, only the weight
+path differs. 12B extreme shapes, 50-iter means:
+
+| ms | gate 15360x3840 | down 3840x15360 |
+|---|---|---|
+| A fused-int4 (production) | 0.415 | 0.352 |
+| B int8-stored, plane-permuted | 0.306 | 0.272 |
+| C bf16-in-Pallas control | 0.257 | 0.149 |
+| D dense XLA matmul | 0.180 | 0.125 |
+| unpack+scale = A-C | 0.158 (38%) | 0.202 (57%) |
+| convert+scale = B-C | 0.049 | 0.122 |
+| Pallas/tiling overhead = C-D | 0.077 | 0.025 |
+
+Confirmed: (1) nibble unpack is 38-57% of fused kernel time — the VPU-bound
+diagnosis is now measured, not inferred; (2) the int8-stored escape prices
+as predicted: ~25% faster than fused int4 on every shape, same numerics
+(int8 kernel reuses the plane-permuted layout so the concat-scale trick
+still applies — no relayout); (3) XLA's own tiling beats our fixed
+blk=128/ck=960 by 20-40% on the tall shape — the gap Helion autotuning
+would target.
