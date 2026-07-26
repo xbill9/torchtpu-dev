@@ -208,3 +208,9 @@ pipelining headroom). Marginal cost ~11.8 ms/stream over the 35.4 ms
 single-stream base. **Packed int4 12B at batch 4 out-throughputs bf16
 single-stream (45.2 tok/s) by 25% at ~1/3 the HBM (~10 GB vs 26 GB).**
 The memory-win and the throughput-win now point the same direction.
+
+**E4B fused cell closed (last open matrix cell):** fused batch 1 =
+54.6 tok/s (18.3 ms/step) vs 72.4 in-graph — crossover rule holds, E4B
+stays on the in-graph side single-stream. Fused batch 4 = 118.9 tok/s
+aggregate (33.7 ms/step, 1.8× step cost for 4 streams). In-graph batch-4
+E4B left unmeasured (packed bench has no batch arg); likely higher still.
