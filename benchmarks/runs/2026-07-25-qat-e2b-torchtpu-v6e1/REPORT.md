@@ -423,3 +423,13 @@ weights. KV cache: 0.06 GB.
 
 With this, all four Gemma 4 architectures (E2B, E4B, 12B, 31B dense,
 26B MoE) run w4a16-quantized on single v6e-1 chips through the port.
+
+**26B MoE batch curve:** b1 122.5 (8.2 ms) / b4 181.4 agg (22.1 ms) /
+b8 HBM-OOM (HLO temporaries 42.13 G > 31.24 G — gathered dequantized
+expert slices materialize as bf16 temps). Two architectural findings:
+(1) MoE expert traffic GROWS with batch (each stream routes to its own
+top-8), so the sparse advantage is a low-batch advantage — dense 12B
+already beats the 26B per-step at b4 (18.4 vs 22.1 ms); (2) scaling MoE
+batch needs a fused dequant-inside-matmul expert kernel (v2) to stop
+temp materialization. b1 remains the 26B sweet spot: 122.5 tok/s at
+17.64 GB is the second-fastest single-stream config in the family.
