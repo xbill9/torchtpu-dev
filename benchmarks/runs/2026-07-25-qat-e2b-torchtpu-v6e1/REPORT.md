@@ -397,3 +397,11 @@ b4 rewrites the book — per-stream beats every prior E2B config, aggregate
 is 1.8x the bf16 b4 record at ~40% of its memory. Full port family now
 TPU-proven: dense (12B measured), E-series (E2B measured), MoE
 (parity-proven locally, TPU assembly pending).
+
+**Cached E4B (old VM's last hour, `tpu_bench_e.py`):** 343/343 int8
+Linears, 4.97 GB. **b1 = 73.9 tok/s (13.5 ms) — beats the old E4B record
+(72.4) even single-stream**, the first model where cached wins at b1
+(KV-sharing trims per-step cache traffic). **b4 = 427.2 tok/s aggregate**
+(106.8/stream, 9.4 ms/step) — 3.6x the old fused-b4 record (118.9).
+Cached matrix now measured for E2B/E4B/12B; 31B cached remains the one
+open cell.
