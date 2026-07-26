@@ -264,3 +264,12 @@ kernel-level ~25% prediction understated the model-level win (36%).
 New ranking for 12B-class: int8-stored > bf16 (memory) > fused int4
 (only when HBM is the binding constraint). 31B pure-int8 doesn't fit
 (29.6 GB weights); hybrid int8/int4 split is the follow-up.
+
+**Hybrid int8/int4 on 31B (`w4a16_hybrid_model_bench.py`, budget as argv[3]):**
+13 GB int8 budget = HBM transfer OOM — real all-fused residency is ~22 GB
+(the 16.47 GB figure counts scale UNexpanded; scale_rep4 adds 0.25 B/elem
+= +5.5 GB on 31B). 8 GB budget fits: 91/410 layers int8, **10.2 tok/s
+(97.6 ms/step)**, +11% over all-fused (9.2). The 31B single-chip ceiling
+with today's kernels: 10.2 b1 / 24.0 aggregate b4. Next memory lever:
+store scales unexpanded (frees 5.5 GB on 31B → roughly doubles the int8
+budget → ~11 tok/s, and more once the kernel reads compact scales).
