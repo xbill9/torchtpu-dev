@@ -216,11 +216,25 @@ serving, provision with `workload="pytorch"`:
   128 (or at least 8/16) so they tile the Matrix Multiply Unit cleanly.
 - **Prefer `torch.bfloat16`** — native on the MXU; float32 is emulated.
 - **Attention:** `F.scaled_dot_product_attention` only has a fast path on TPU
-  when the FLASH_ATTENTION conditions are met (the fused kernel wants seq
-  lengths divisible by 512); otherwise it falls back to slow MATH. The
-  official ViT tutorial hand-rolls attention instead — do the same, or shape
-  buffers to hit the fast path. (Training with SDPA's fast path wants fp32 —
-  a documented exception to the bf16 rule.)
+  when the FLASH_ATTENTION conditions are met (measured 2026-07-26: the
+  FIRST condition is `attn_mask is None` — stock HF models always pass a
+  mask, so the fused kernel is unreachable from them; hand-rolled models
+  must call SDPA with `attn_mask=None, is_causal=True`; also seq lengths
+  divisible by 512). Otherwise it falls back to slow MATH. The official ViT
+  tutorial hand-rolls attention instead — do the same, or shape buffers to
+  hit the fast path. (Training with SDPA's fast path wants fp32 — a
+  documented exception to the bf16 rule.) When porting a model, check its
+  attention scaling: SDPA defaults to 1/sqrt(head_dim), but e.g. Gemma 4
+  uses scale=1.0 — pass `scale=` explicitly.
+- **Static KV-cache decode pattern (compile-clean, verified in
+  ports/gemma4/):** preallocate `[B, n_kv, MAX_SEQ, head_dim]` buffers,
+  write with `index_copy_` at a TENSOR position (never a Python int), build
+  decode masks from `arange(MAX_SEQ)` + the pos tensor via `torch.where` —
+  zero data-dependent control flow, traces `fullgraph=True` first try.
+  Note decode matmuls have batch-many rows: at batch 1 they under-fill the
+  MXU (12B cached b1 was SLOWER than the no-cache 256-row loop); the cache
+  pays off at batch ≥ 4 (weights are read once per step regardless of
+  batch — 12B cached b4 = 3.3× the no-cache aggregate).
 - **Training works** (backward + optimizers, eager): accumulate loss
   on-device via `loss.detach()` and materialize with ONE `.item()` per epoch
   — per-step host syncs stall the TPU pipeline.
