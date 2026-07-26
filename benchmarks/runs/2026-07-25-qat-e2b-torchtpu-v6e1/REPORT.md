@@ -168,3 +168,10 @@ In-graph dequant is the wrong side of the crossover at this size (it
 re-materializes ~29 G weights in bf16 every step); the fused Pallas kernel
 run is the follow-up. The headline stands regardless: the biggest dense
 Gemma 4 QAT checkpoint is single-chip-servable on TorchTPU.
+
+**Fused Pallas kernel on 31B (same night, vm2):** 410/410 layers fused,
+warmup 71.5 s, **9.2 tok/s (109.0 ms/step)** — 2.0× over in-graph (217.6 ms).
+Output text coherent. Consistent with the VPU-bound model: ~29 G weights /
+11 G × the 12B kernel's ~35 ms ≈ 93 ms predicted, 109 observed. With
+lockstep batch 4 (unpack amortizes, per the 1.98×-at-2×-cost E2B data)
+a ~25-35 tok/s aggregate 31B single-chip server is the projected next stop.
