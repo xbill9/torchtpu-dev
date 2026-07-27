@@ -291,7 +291,12 @@ serving, provision with `workload="pytorch"`:
 - **Debugging traps & tools:** `@torch.inference_mode()` + torch.compile
   crashes — always `@torch.no_grad()`. Only ONE process can hold the TPU
   ("already in use by process with pid ...") — kill stray python3.12 before
-  benchmarking. Deferred execution surfaces errors at materialization
+  benchmarking. **`pkill -f`/`pgrep -f` over SSH: the pattern matches the
+  SSH session's own remote command line if that line contains the pattern
+  text (e.g. inside a `nohup bash -c "... tpu_bench ..."` string), killing
+  your own session (exit 255) or making wait-loops spin forever — bit this
+  project three times. Get PIDs with a pattern-free probe (`pgrep -a
+  python3.12`) in one SSH call, kill by PID in the next.** Deferred execution surfaces errors at materialization
   (`.cpu()`), not the faulting line — wrap in
   `execution_mode.eager_mode(EagerMode.DEFER_NEVER)` (slow) to pinpoint
   NaN/OOM. `utils.OpTracer()` audits dispatched ops — high `aten.copy_` /

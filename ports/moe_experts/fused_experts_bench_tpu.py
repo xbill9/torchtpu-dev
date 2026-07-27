@@ -27,6 +27,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import jax
 import numpy as np
 import torch
 
@@ -42,7 +43,9 @@ WARMUP, STEPS = 3, 32
 DOWN_PAD_K = None  # set to 1024 if Mosaic rejects the 88-wide lane concat
 
 
-def _moe_fused_jax(hidden, idx, wts, gu_p, gu_s, dn_p, dn_s):
+def _moe_fused_jax(hidden: jax.Array, idx: jax.Array, wts: jax.Array,
+                   gu_p: jax.Array, gu_s: jax.Array,
+                   dn_p: jax.Array, dn_s: jax.Array) -> jax.Array:
     return fek.fused_experts_forward(
         hidden, idx, wts, gu_p, gu_s, dn_p, dn_s, down_pad_k=DOWN_PAD_K
     )
