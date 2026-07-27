@@ -1,7 +1,8 @@
 # TorchTPU field feedback — Gemma 4 w4a16 on v6e-1
 
 **Context:** engineering notes from building an end-to-end w4a16
-compressed-tensors execution path for Gemma 4 (E2B→31B) on torch_tpu
+compressed-tensors execution path for Gemma 4 (E2B→31B dense + 26B-A4B MoE)
+on torch_tpu
 `0.1.1.dev20260725090141` / torch 2.11.0+cpu / Python 3.12, single v6e-1.
 Each item: symptom → root cause as we understand it → suggested improvement.
 Full numbers in RESULTS.md.
@@ -41,7 +42,9 @@ Full numbers in RESULTS.md.
 - *Suggestion:* document the tradeoff prominently (the default is 32 MB and
   raising it looks free); ideally size the reservation from actual scoped
   usage. Design rule we derived: keep the limit at the minimum that fits and
-  scale batch via grid tiling, not larger whole-activation blocks.
+  scale batch via grid tiling, not larger whole-activation blocks. (The hard
+  wall is real: at batch 4 × 1024 ctx the no-cache whole-x block needs
+  139.4 MB > 127.9 MB physical VMEM — uncompilable.)
 
 **4. Block last-dim constraints.** Pallas TPU block last dims must be ×128 or
 full-size. Documented behavior, but the error surfaces late; an early
@@ -110,3 +113,29 @@ nightly would help.
 into a dedicated `python3.12`'s site-packages (system python is 3.10) works
 identically and suits VM startup scripts. Worth stating that the requirement
 is really "Python 3.12 + the authenticated index", not the venv itself.
+
+## (g) Model / checkpoint findings worth a doc note
+
+**12. Gemma 4 E is exactly three features — and the ct checkpoints encode
+one of them.**
+- E = dense + (1) KV-shared layers 15–34, (2) per-layer embeddings,
+  (3) double-wide MLP on shared layers — NO altup/laurel/sparsity. Porting
+  E on top of a dense Gemma 4 port is far cheaper than the family's
+  reputation suggests.
+- The `w4a16-ct` checkpoints ship **no k/v/k_norm on shared layers by
+  construction** — which resolves the known vLLM-TPU load failure
+  ("`k_norm.weight` not initialized, layers 15–34") as a *loader* bug, not
+  an export bug. Worth relaying to the vLLM-TPU side; a shared-layer note in
+  any Gemma 4 example would save others the same triage.
+
+**13. MoE expert traffic grows with batch — the sparse advantage is a
+low-batch advantage.**
+- *Symptom:* 26B-A4B on one v6e-1: b1 122.5 tok/s (8.2 ms/step), b4 181.4
+  aggregate (22.1 ms), b8 HBM-OOM — HLO temporaries 42.13 G > 31.24 G
+  (gathered dequantized expert slices materialize as bf16 temps).
+- *Cause:* each stream routes independently to its own top-8 experts, so
+  expert bytes touched per step grow with batch; measured dense 12B already
+  beats the 26B MoE per-step at b4 (18.4 vs 22.1 ms).
+- *Suggestion:* a fused dequant-inside-matmul expert kernel (our v2) stops
+  the temp materialization; until then, single-chip MoE serving should be
+  sized for low batch — b1 is the 26B sweet spot.

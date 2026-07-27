@@ -3,25 +3,79 @@
 **Setup:** single v6e-1 (ct6e-standard-1t, 32 GB HBM), torch_tpu
 `0.1.1.dev20260725090141`, torch 2.11.0+cpu, transformers 5.14.1,
 compressed-tensors 0.17.1. Checkpoints: Google's ungated
-`gemma-4-{E2B,E4B,12B,31B}-it-qat-w4a16-ct` (int4 symmetric, group-32).
-All decode numbers: compiled (`backend="tpu", dynamic=False`), SEQ=256 loop,
-greedy. "b4 aggregate" = 4 lockstep streams, summed tok/s.
+`gemma-4-{E2B,E4B,12B,31B}-it-qat-w4a16-ct` (int4 symmetric, group-32), plus
+26B-A4B MoE DIY-quantized at load from the bf16 QAT masters
+(qat-q4_0-unquantized). All decode numbers: compiled
+(`backend="tpu", dynamic=False`), SEQ=256 loop, greedy.
+"b4 aggregate" = 4 lockstep streams, summed tok/s.
 
-## Final per-model best configs
+## Final champion board (best b1 / best b4 per model)
 
-| Model | Best config | b1 tok/s (ms/step) | b4 aggregate | Quant-Linear HBM | bf16 baseline (b1) |
-|---|---|---:|---:|---:|---:|
-| E2B | int4, in-graph dequant | 157.5 (6.3) | — | 1.06 GB (bf16 3.75) | 227.6 |
-| E4B | int4, in-graph dequant | 72.4 | 118.9 (fused int4) | 2.23 GB (bf16 7.95) | 114.1 |
-| 12B | int8-stored + w8a16 Pallas kernel | 44.3 (22.6) | 66.5 (60.2 ms) | 13.62 GB (bf16 26) | 45.2 (22.1) |
-| **12B + static KV cache** | int8 kernel, cached port | 36.8 (27.1) | **217.4 (18.4 ms)** | 13.62 GB | — |
-| 31B b1 | hybrid int8/int4, compact scales, 17 GB int8 budget (227/410 layers int8) | **11.4 (87.7)** | — | ~24.5 GB | bf16 does not fit (58.57 GB) |
-| 31B b4 | all-fused packed int4 (rep4 scales), 64 MB scoped VMEM | 9.2 (109.0) | **24.0 (166.9 ms)** | 16.47 GB packed (+5.5 GB expanded scales) | — |
+| Model | b1 champion | b4 aggregate champion | Quant HBM |
+|---|---|---|---|
+| E2B | 157.5 tok/s (6.3 ms) — int4 in-graph, no cache | **809.9** (202.5/stream, 4.9 ms) — cached port, int8 | 1.06 GB in-graph / 2.35 GB cached-int8 (bf16 3.75) |
+| E4B | **73.9** (13.5 ms) — cached port, int8 | **427.2** (106.8/stream, 9.4 ms) — cached port, int8 | 4.97 GB (bf16 7.95) |
+| 12B | 44.3 (22.6 ms) — int8 + w8a16 Pallas kernel, no cache | **217.4** (54.4/stream, 18.4 ms) — cached port, int8 | 13.62 GB (bf16 26) |
+| 31B | **11.4** (87.7 ms) — hybrid int8/int4, compact scales, 17 GB int8 budget | **24.0** (166.9 ms) — all-fused packed int4 (rep4), no cache | 16.47 GB packed / ~24.5 GB hybrid (bf16 58.57 — does not fit) |
+| cached 31B | \<pending tonight's run\> | \<pending tonight's run\> | — |
+| 26B MoE | **122.5** (8.2 ms) — cached port, DIY int4 experts | 181.4 (22.1 ms) | 17.64 GB (12.85 int4 experts + 4.79 bf16) |
 
-12B cached notes: compiled 128-token prefill = 46 ms; cached b1 sits below
-no-cache b1 because MAX_SEQ=256 decode is weight-bandwidth-bound either way
-and 1-row matmuls waste tiling; cached b4 reads weights once per step for 4
-streams — 3.3× the no-cache aggregate, per-stream 54.4 > bf16 b1's 45.2.
+Notes: 12B cached — compiled 128-token prefill = 46 ms; cached b1 (36.8,
+27.1 ms) sits below no-cache b1 because MAX_SEQ=256 decode is
+weight-bandwidth-bound either way and 1-row matmuls waste tiling; cached b4
+reads weights once per step for 4 streams — 3.3× the no-cache aggregate
+(66.5), per-stream 54.4 > bf16 b1's 45.2. Superseded configs kept for the
+cost model: E4B int4 in-graph 72.4 b1 / fused-b4 118.9; E4B/E2B bf16
+baselines 114.1 / 227.6 (450.5 agg b4); 31B all-fused b1 9.2 (109.0 ms).
+
+## Context scaling (12B int8): the cache's raison d'être
+
+| batch 1 | 256 ctx | 1024 ctx |
+|---|---|---|
+| no-cache | 44.3 tok/s (22.6 ms) | 17.9 tok/s (55.9 ms) — 2.5× worse |
+| cached port | 36.8 (27.1 ms) | **36.1 (27.7 ms) — flat** |
+
+| batch 4 | 256 ctx | 1024 ctx |
+|---|---|---|
+| no-cache | 66.5 agg | **UNCOMPILABLE** — whole-x VMEM 139.4 MB > 127.9 MB physical |
+| cached port | 217.4 agg | 178.4 agg (22.4 ms/step) |
+
+No-cache cost grows linearly-plus with context, and its whole-x kernel block
+grows past physical VMEM at batch × context = 4096 rows; cached decode is
+flat (+0.6 ms for 4× context = the attention read over the longer cache).
+Crossover at batch 1 sits just past 256 ctx; at any real context or batch
+the cache is not an optimization but a requirement.
+
+## Cached E-series port (KV-shared layers alias cache slots)
+
+E2B: 276/276 Linears on the int8 kernel, 2.35 GB weights+scale, compiled
+first try. b1 = 116.6 tok/s (8.6 ms); b4 = **809.9 aggregate / 202.5 per
+stream (4.9 ms/step)** — per-stream beats every prior E2B config, aggregate
+is 1.8× the bf16 b4 record (450.5) at ~40% of its memory.
+
+E4B: 343/343 int8 Linears, 4.97 GB. b1 = **73.9 tok/s (13.5 ms) — beats the
+old E4B record (72.4) even single-stream**, the first model where cached wins
+at b1 (KV-sharing trims per-step cache traffic). b4 = **427.2 aggregate**
+(106.8/stream, 9.4 ms/step) — 3.6× the old fused-b4 record (118.9).
+
+## 26B-A4B MoE on one v6e-1 (first single-chip run)
+
+No packed checkpoint exists — the bf16 QAT masters (qat-q4_0-unquantized,
+52 GB) were DIY-quantized at load: 30 layers swapped to W4A16Experts (int4
+g32, ct layout), 34 s quantization pass, peak host RAM 114.9 GB. HBM weight
+footprint **17.64 GB** (12.85 int4 experts + 4.79 bf16 non-expert). Compiled
+prefill exec 711 ms / 128 tok; KV cache 0.06 GB; decoded text fully coherent.
+
+| batch | result |
+|---|---|
+| 1 | **122.5 tok/s (8.2 ms/step)** — second-fastest single-stream config in the family (~1/16 of expert bytes touched per token) |
+| 4 | 181.4 aggregate (22.1 ms) |
+| 8 | HBM OOM — HLO temporaries 42.13 G > 31.24 G (gathered dequantized expert slices materialize as bf16 temps) |
+
+Expert traffic grows with batch (each stream routes to its own top-8), so
+the sparse advantage is a low-batch advantage — dense 12B already beats the
+26B per-step at b4 (18.4 vs 22.1 ms). Scaling MoE batch needs a fused
+dequant-inside-matmul expert kernel (v2) to stop temp materialization.
 
 ## Cost model: bandwidth-bound vs VPU-bound
 
@@ -84,6 +138,5 @@ Warmup incl. compile: 19.3 s (E2B bf16) → 57.1 s (E2B packed) → 77.4 s (31B
 in-graph) / 71.5 s (31B fused); tier-3 GCS compile cache halves repeats
 (84.3 → 36.6 s).
 
-**Unmeasured cells:** cached-port 31B / E2B / E4B; cached long-context
-(all cached runs at MAX_SEQ=256, 128-token prefill); in-graph b4 E4B;
-MoE 26B-A4B end-to-end on TPU.
+**Unmeasured cells:** cached-port 31B (\<pending tonight's run\>);
+in-graph b4 E4B; MoE batch ≥ 8 (blocked on the v2 fused expert kernel).
