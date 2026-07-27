@@ -454,3 +454,14 @@ Linears — it lives in the non-Linear decode graph (1-token attention,
 index_copy/mask glue). Sub-8-row padding penalty exists only on wide-K
 shapes (0.203 vs 0.120 ms at 1 vs 8 rows). Next lever for b1: fuse the
 attention/glue path, not the matmuls.
+
+**MoE v2 fused expert kernel on real Mosaic (`fused_experts_bench_tpu.py`):**
+COMPILES (the 88-wide lane concat passes; DOWN_PAD_K unneeded); parity
+v1-vs-v2 3.97e-03 fp32; but **2.2x slower per layer than v1 at
+single-layer scale** (3.16 vs 1.42 ms at T*K=64 real dims) — per-block
+overhead at tiny expert slices, the E2B small-layer lesson at finer
+grain. v2 is therefore a MEMORY unlock (b8's 42 GB temp OOM -> ~400 MB
+transients), not a speed play. Open: whether model-level pipelining
+recovers enough for v2@b8 to beat v1@b4 (181.4 agg) — model run pending.
+Two jax_op traps re-confirmed: params need type annotations; and the
+pkill/pgrep-self-match SSH trap (now in SKILL.md).
