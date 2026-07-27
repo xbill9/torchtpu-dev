@@ -17,7 +17,7 @@ compressed-tensors 0.17.1. Checkpoints: Google's ungated
 | E4B | **73.9** (13.5 ms) — cached port, int8 | **427.2** (106.8/stream, 9.4 ms) — cached port, int8 | 4.97 GB (bf16 7.95) |
 | 12B | 44.3 (22.6 ms) — int8 + w8a16 Pallas kernel, no cache | **217.4** (54.4/stream, 18.4 ms) — cached port, int8 | 13.62 GB (bf16 26) |
 | 31B | **11.4** (87.7 ms) — hybrid int8/int4, compact scales, 17 GB int8 budget | **24.0** (166.9 ms) — all-fused packed int4 (rep4), no cache | 16.47 GB packed / ~24.5 GB hybrid (bf16 58.57 — does not fit) |
-| cached 31B | \<pending tonight's run\> | \<pending tonight's run\> | — |
+| cached 31B | 9.5 (105.1 ms) | **44.0 (91.0 ms/step)** | measured 2026-07-27 — new 31B aggregate record (1.83x the no-cache 24.0) |
 | 26B MoE | **122.5** (8.2 ms) — cached port, DIY int4 experts | 181.4 (22.1 ms) | 17.64 GB (12.85 int4 experts + 4.79 bf16) |
 
 Notes: 12B cached — compiled 128-token prefill = 46 ms; cached b1 (36.8,
@@ -138,5 +138,5 @@ Warmup incl. compile: 19.3 s (E2B bf16) → 57.1 s (E2B packed) → 77.4 s (31B
 in-graph) / 71.5 s (31B fused); tier-3 GCS compile cache halves repeats
 (84.3 → 36.6 s).
 
-**Unmeasured cells:** cached-port 31B (\<pending tonight's run\>);
+**Unmeasured cells:**
 in-graph b4 E4B; MoE batch ≥ 8 (blocked on the v2 fused expert kernel).

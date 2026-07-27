@@ -117,7 +117,7 @@ would adapt naming/style to whatever `examples/gemma3` conventions require.
 | E4B | **73.9 tok/s** (cached, int8) | **427.2 tok/s** (cached, int8) | 4.97 / 7.95 GB |
 | 12B | 44.3 tok/s (int8 + Pallas kernel, no cache) | **217.4 tok/s** (cached; 18.4 ms/step, prefill 128 tok in 46 ms) | 13.62 / 26 GB |
 | 31B | **11.4 tok/s** (hybrid int8/int4, compact scales) | **24.0 tok/s** (all-fused int4, no cache) | 16.47 GB packed (bf16 58.57 GB — does not fit) |
-| cached 31B | \<pending tonight's run\> | \<pending tonight's run\> | — |
+| cached 31B | 9.5 (105.1 ms) | **44.0 (91.0 ms/step)** | measured 2026-07-27 — new 31B aggregate record (1.83x the no-cache 24.0) |
 | 26B MoE | **122.5 tok/s** (cached, DIY int4 experts) | 181.4 tok/s | 17.64 GB (bf16 experts alone 45.7 GB — impossible) |
 
 The 31B row is the headline for fit: the largest dense Gemma 4 QAT
@@ -130,7 +130,7 @@ second-fastest single-stream config in the family.
 
 **Measured vs. unmeasured.** All numbers above are measured (2026-07-25/26
 sessions), including cached context scaling to 1024 ctx. Not yet measured:
-cached-port 31B (pending tonight's run), in-graph batch-4 E4B, and MoE
+in-graph batch-4 E4B and MoE
 batch ≥ 8 (HBM-OOM from expert-slice temporaries today; needs the v2 fused
 dequant-inside-matmul expert kernel).
 

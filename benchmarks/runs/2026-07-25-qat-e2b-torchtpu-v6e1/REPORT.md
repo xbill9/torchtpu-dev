@@ -433,3 +433,24 @@ already beats the 26B per-step at b4 (18.4 vs 22.1 ms); (2) scaling MoE
 batch needs a fused dequant-inside-matmul expert kernel (v2) to stop
 temp materialization. b1 remains the 26B sweet spot: 122.5 tok/s at
 17.64 GB is the second-fastest single-stream config in the family.
+
+## Step 14 — deep-dig session (2026-07-27): last cell + long context + row toll
+
+**Cached 31B (int4-fused Linears): b1 = 9.5 tok/s (105.1 ms) — edges
+no-cache (9.2); b4 = 44.0 tok/s aggregate (91.0 ms/step) — NEW 31B
+RECORD, 1.83x the old 24.0.** At 31B the weight-read floor (~90 ms)
+dominates, so cached b4 ~= the floor while no-cache paid 1024-row
+activation costs on top. Matrix complete: every model, every cell.
+
+**12B cached long-context:** b4 aggregate 217.4 (256) -> 178.4 (1024) ->
+124.9 (2048); ms/step 18.4 -> 22.4 -> 32.0 — flatness bends as attention
+over the cache becomes visible, but the regime is unreachable for the
+no-cache design at any batch.
+
+**Row-toll microbench (`w4a16_rowtoll_debug.py`):** kernel time is
+row-FLAT 1->256 (bandwidth-bound); summed per-layer 1-row calls are
+CHEAPER than 256-row. The cached-b1 toll on 12B/E2B is NOT in the
+Linears — it lives in the non-Linear decode graph (1-token attention,
+index_copy/mask glue). Sub-8-row padding penalty exists only on wide-K
+shapes (0.203 vs 0.120 ms at 1 vs 8 rows). Next lever for b1: fuse the
+attention/glue path, not the matmuls.
