@@ -465,3 +465,15 @@ transients), not a speed play. Open: whether model-level pipelining
 recovers enough for v2@b8 to beat v1@b4 (181.4 agg) — model run pending.
 Two jax_op traps re-confirmed: params need type annotations; and the
 pkill/pgrep-self-match SSH trap (now in SKILL.md).
+
+**26B b8 with the v2 fused kernel: THE WALL IS BROKEN, THE CROWN STAYS.**
+W4A16ExpertsV2 (gather packed, dequant inside the kernel) at batch 8:
+compiles and decodes — 94.8 tok/s aggregate (84.4 ms/step), 17.64 GB
+weights + 0.46 GB KV, no temp explosion (v1 needed 42 GB and could not
+compile). But per-slice kernel overhead does NOT pipeline away at model
+level (84.4 ms ~= 30 layers x the 2.8-3.2 ms microbench cost — unlike the
+dense kernels, where model-level was far kinder). **26B ceiling remains
+v1@b4 = 181.4 aggregate.** v3 direction if ever needed: batch expert
+slices within one kernel invocation (grid over slices with fuller MXU
+packing) or expert-parallel sharding across chips. b8 prefill: compiled
+46.5 s, exec 3.03 s at 8x64 tokens.
