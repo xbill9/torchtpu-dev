@@ -50,3 +50,4 @@ pytorch.md
 docs/upstream/
 benchmarks/runs/2026-07-25-qat-e2b-torchtpu-v6e1/
 benchmarks/runs/2026-07-25-torchtpu-e2b-v6e1/
+benchmarks/runs/2026-08-02-torchtpu-e2b-v6e1-openai/
