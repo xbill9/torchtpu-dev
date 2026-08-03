@@ -178,7 +178,7 @@ class PyTorchStartupTemplateTests(unittest.TestCase):
         return template.format(
             project_id="test-project",
             zone="europe-west4-a",
-            torch_pip_spec="torch_tpu",
+            torch_pip_spec="tpu-backend-pkg",
             torch_index="us-python.pkg.dev/test-registry/simple/",
         )
 
@@ -187,16 +187,16 @@ class PyTorchStartupTemplateTests(unittest.TestCase):
         self.assertNotIn("{project_id}", rendered)
         self.assertNotIn("{torch_pip_spec}", rendered)
         self.assertNotIn("{torch_index}", rendered)
-        self.assertIn("torch_tpu", rendered)
+        self.assertIn("tpu-backend-pkg", rendered)
         self.assertIn("us-python.pkg.dev/test-registry/simple/", rendered)
-        self.assertIn("TorchTPU environment ready.", rendered)
+        self.assertIn("TPU environment ready.", rendered)
 
-    def test_smoke_test_follows_torchtpu_rules(self):
-        """The embedded smoke test must use plain torch (never `import torch_tpu`
+    def test_smoke_test_follows_tpu_rules(self):
+        """The embedded smoke test must use plain torch (never importing the backend
         or PyTorch/XLA) and compile with backend="tpu"."""
         rendered = self.render()
         smoke = rendered.split("<< 'PYEOF'")[1].split("PYEOF")[0]
-        self.assertNotIn("import torch_tpu", smoke)
+        self.assertNotIn("import tpu-backend-pkg", smoke)
         self.assertNotIn("torch_xla", smoke)
         self.assertIn('backend="tpu"', smoke)
         self.assertIn("bfloat16", smoke)

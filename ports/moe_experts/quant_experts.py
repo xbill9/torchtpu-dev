@@ -19,7 +19,7 @@ Dispatch (static shapes, TPU-friendly):
   shift/mask/scale, and applied with torch.bmm per (token, k) pair. All shapes
   are static functions of (tokens, k).
 
-Plain torch only — no torch_tpu import, no PyTorch/XLA.
+Plain torch only — no backend package import, no PyTorch/XLA.
 """
 
 from __future__ import annotations

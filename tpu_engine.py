@@ -1,6 +1,6 @@
-"""Option A: TorchTPU Generation Engine.
+"""Option A: the PyTorch TPU backend Generation Engine.
 
-Graph-break-free PyTorch generation engine compiled via torchtpu_compiler.compile_for_tpu.
+Graph-break-free PyTorch generation engine compiled via tpu_compiler.compile_for_tpu.
 Encapsulates tokenization, static sequence padding (128-aligned for TPU MXU),
 and autoregressive token generation.
 """
@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any, Generator, Protocol
-from torchtpu_compiler import LLMEngine, compile_for_tpu, validate_tpu_inputs
+from tpu_compiler import LLMEngine, compile_for_tpu, validate_tpu_inputs
 
-logger = logging.getLogger("torchtpu_engine")
+logger = logging.getLogger("tpu_engine")
 
 
 def pad_to_multiple(length: int, multiple: int = 128) -> int:
@@ -23,8 +23,8 @@ def pad_to_multiple(length: int, multiple: int = 128) -> int:
     return length + (multiple - remainder)
 
 
-class TorchTPUEngine:
-    """Option A PyTorch LLM Engine targeting TorchTPU or FX Staging."""
+class TPUEngine:
+    """Option A PyTorch LLM Engine targeting the PyTorch TPU backend or FX Staging."""
 
     def __init__(
         self,

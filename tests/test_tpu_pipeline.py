@@ -1,10 +1,10 @@
-"""Full Integration Test Suite for Option A TorchTPU Pipeline."""
+"""Full Integration Test Suite for Option A the PyTorch TPU backend Pipeline."""
 
 import unittest
 from fastapi.testclient import TestClient
-import torchtpu_compiler
-from torchtpu_engine import TorchTPUEngine, pad_to_multiple
-from torchtpu_server import create_app
+import tpu_compiler
+from tpu_engine import TPUEngine, pad_to_multiple
+from tpu_server import create_app
 
 
 class DummyModel:
@@ -33,7 +33,7 @@ class DummyTokenizer:
         return "".join([chr(t + 65) for t in tokens])
 
 
-class TestTorchTPUPipeline(unittest.TestCase):
+class TestTPUPipeline(unittest.TestCase):
 
     def test_pad_to_multiple(self):
         self.assertEqual(pad_to_multiple(100, 128), 128)
@@ -41,7 +41,7 @@ class TestTorchTPUPipeline(unittest.TestCase):
         self.assertEqual(pad_to_multiple(129, 128), 256)
 
     def test_engine_and_server_pipeline(self):
-        engine = TorchTPUEngine(
+        engine = TPUEngine(
             model=DummyModel(),
             tokenizer=DummyTokenizer(),
             device="cpu",

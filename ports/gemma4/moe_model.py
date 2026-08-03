@@ -51,7 +51,7 @@ both sides, so it contributes no state-dict key.)
 Real 26B-A4B values for reference: 128 experts, top_k 8,
 moe_intermediate_size 704, hidden 2816, dense intermediate 2112, 30 layers.
 
-Plain torch only — no transformers import, no torch_tpu import.
+Plain torch only — no transformers import, no backend package import.
 """
 
 import dataclasses

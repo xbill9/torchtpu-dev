@@ -20,7 +20,19 @@ import numpy as np
 import torch
 import transformers
 from jax.experimental import pallas as pl
-from torch_tpu._internal import pallas
+import importlib
+import os
+
+# The PyTorch TPU backend package is not publicly distributable, so its name is
+# not committed here: set TPU_BACKEND_MODULE (e.g. in /etc/environment on the VM)
+# to the installed backend package. Imported dynamically for the Pallas bridge.
+_BACKEND = os.getenv("TPU_BACKEND_MODULE")
+if not _BACKEND:
+    raise RuntimeError(
+        "TPU_BACKEND_MODULE is not set — export it to the installed PyTorch TPU "
+        "backend package name so the Pallas bridge can be imported."
+    )
+pallas = importlib.import_module(f"{_BACKEND}._internal.pallas")
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "google/gemma-4-12B-it-qat-w4a16-ct"
 BATCH = int(sys.argv[2]) if len(sys.argv) > 2 else 1

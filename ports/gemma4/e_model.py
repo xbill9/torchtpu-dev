@@ -76,7 +76,7 @@ weight`, `model.layers.{i}.per_layer_input_gate.weight`,
 `.per_layer_projection.weight`, `.post_per_layer_input_norm.weight`) so
 `model.load_hf_state_dict` works unchanged (re-exported below).
 
-Plain torch only — no transformers import, no torch_tpu import.
+Plain torch only — no transformers import, no backend package import.
 """
 
 import dataclasses

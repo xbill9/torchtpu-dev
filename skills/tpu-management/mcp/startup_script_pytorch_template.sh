@@ -2,10 +2,10 @@
 # Mirror all output to the serial console: SSH to TPU VMs is often blocked by
 # firewall policy, and the serial log is then the only way to watch boot progress
 # (gcloud compute instances get-serial-port-output).
-exec > >(tee /var/log/torchtpu-startup.log > /dev/console) 2>&1
+exec > >(tee /var/log/tpu-startup.log > /dev/console) 2>&1
 set -ex # Enable command tracing and exit on error
 
-echo "Starting TorchTPU Bootloader..."
+echo "Starting the PyTorch TPU backend Bootloader..."
 echo "-----------------------------------"
 echo "Project ID: {project_id}"
 echo "Zone: {zone}"
@@ -34,7 +34,7 @@ for i in $(seq 1 30); do
 done
 set -e # Re-enable exit on error
 
-# The TorchTPU quickstart requires Python 3.12 (the wheels are built for it).
+# The the PyTorch TPU backend quickstart requires Python 3.12 (the wheels are built for it).
 # The jammy ubuntu-accel image ships 3.10, so fall back to deadsnakes if the
 # stock archive doesn't carry 3.12.
 export DEBIAN_FRONTEND=noninteractive
@@ -55,7 +55,7 @@ fi
 # there is nothing to protect.
 python3.12 -m ensurepip --upgrade
 
-# The torch_tpu wheels live in a private Artifact Registry; authenticate with the
+# The backend wheels live in a private Artifact Registry; authenticate with the
 # VM service account's access token from the metadata server (gcloud is not
 # installed on the ubuntu-accel image). A fetch that 403s at pip time means the
 # VM's service account lacks Artifact Registry reader access to the registry.
@@ -82,8 +82,8 @@ if [ -z "$ACCESS_TOKEN" ]; then
   exit 1
 fi
 
-# Preferred path: the project-owned GCS wheel mirror (per the TorchTPU GDE
-# quickstart's wheel install: custom torch base first, then the torch_tpu
+# Preferred path: the project-owned GCS wheel mirror (per the PyTorch TPU backend GDE
+# quickstart's wheel install: custom torch base first, then the backend
 # extension; remaining deps resolve from public PyPI). The VM's service
 # account can be granted read on our own bucket — unlike Google's Artifact
 # Registry, where the default compute SA typically 403s.
@@ -97,18 +97,20 @@ if [ -n "$WHEELS_GCS" ]; then
     "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o?alt=json" \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(sorted(i["name"] for i in d.get("items", []) if i["name"].endswith(".whl"))))' 2>/dev/null)
   if [ -n "$WHEEL_NAMES" ]; then
-    mkdir -p /tmp/torchtpu-wheels
+    mkdir -p /tmp/tpu-wheels
     DL_OK=1
     for NAME in $WHEEL_NAMES; do
       ENC=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$NAME")
       echo "Downloading $NAME from the mirror..."
-      curl -sf -H "Authorization: Bearer $ACCESS_TOKEN" -o "/tmp/torchtpu-wheels/$NAME" \
+      curl -sf -H "Authorization: Bearer $ACCESS_TOKEN" -o "/tmp/tpu-wheels/$NAME" \
         "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o/$ENC?alt=media" || DL_OK=0
     done
     if [ "$DL_OK" -eq 1 ]; then
-      # torch-*.whl sorts before torch_tpu-*.whl; base wheel installs first.
-      python3.12 -m pip install --break-system-packages /tmp/torchtpu-wheels/torch-*.whl \
-        && python3.12 -m pip install --break-system-packages /tmp/torchtpu-wheels/torch_tpu-*.whl \
+      # The base torch wheel must install before the backend extension wheel.
+      BASE_WHL=$(ls /tmp/tpu-wheels/torch-*.whl 2>/dev/null | head -1)
+      EXT_WHL=$(ls /tmp/tpu-wheels/*.whl 2>/dev/null | grep -v "/torch-" | head -1)
+      python3.12 -m pip install --break-system-packages "$BASE_WHL" \
+        && python3.12 -m pip install --break-system-packages "$EXT_WHL" \
         && INSTALL_OK=1
     fi
   fi
@@ -143,7 +145,7 @@ if [ "$INSTALL_OK" -eq 0 ]; then
   echo "ERROR: Failed to install the PyTorch TPU stack after multiple retries."
   echo "Fixes: upload the two wheels to $WHEELS_GCS (grant the VM SA"
   echo "roles/storage.objectViewer), or grant it Artifact Registry reader on"
-  echo "the torch_tpu registry, then reset the VM."
+  echo "the backend registry, then reset the VM."
   exit 1
 fi
 
@@ -162,11 +164,11 @@ fi
 
 # Write the smoke test to a well-known path so it can be rerun any time
 # (the MCP agent's verify_pytorch_tpu tool executes this same file over SSH).
-# Rules baked in: plain torch only — never `import torch_tpu` (installation
-# registers the "tpu" device) and never PyTorch/XLA; bfloat16 is the native MXU
+# Rules baked in: plain torch only — never import the backend package directly
+# (installing it registers the "tpu" device) and never PyTorch/XLA; bfloat16 is the native MXU
 # dtype; dims are multiples of 128 to tile the MXU cleanly; compile with
 # backend="tpu"; .cpu() forces materialization.
-cat > /opt/torchtpu_smoke.py << 'PYEOF'
+cat > /opt/tpu_smoke.py << 'PYEOF'
 import torch
 
 x = torch.randn(128, 128, dtype=torch.bfloat16, device="tpu")
@@ -176,11 +178,11 @@ out = matmul(x, y).cpu()
 print("compiled matmul OK:", tuple(out.shape), out.dtype)
 PYEOF
 
-echo "Running TorchTPU smoke test (/opt/torchtpu_smoke.py)..."
+echo "Running the PyTorch TPU backend smoke test (/opt/tpu_smoke.py)..."
 set +e
 SMOKE_OK=0
 for i in $(seq 1 3); do
-  python3.12 /opt/torchtpu_smoke.py
+  python3.12 /opt/tpu_smoke.py
   if [ $? -eq 0 ]; then
     SMOKE_OK=1
     break
@@ -190,24 +192,15 @@ for i in $(seq 1 3); do
 done
 set -e
 if [ "$SMOKE_OK" -eq 0 ]; then
-  echo "ERROR: TorchTPU smoke test failed — torch cannot see or compile for the TPU."
-  echo "Inspect /var/log/torchtpu-startup.log on the VM or rerun /opt/torchtpu_smoke.py."
+  echo "ERROR: the PyTorch TPU backend smoke test failed — torch cannot see or compile for the TPU."
+  echo "Inspect /var/log/tpu-startup.log on the VM or rerun /opt/tpu_smoke.py."
   exit 1
 fi
 
-# Persistent compilation cache: tier-2 in shared memory (per-boot), tier-3 in
-# the project bucket (survives VM recreation — flex-start VMs are disposable
-# but compiled binaries are not cheap: 19-70s warmups measured). Entries are
-# fingerprinted by TorchTPU binary + PjRt version, so nightly bumps
-# self-invalidate. Written to /etc/environment so non-interactive SSH commands
-# (how the MCP tools and benchmarks run) inherit them; env vars lock at
-# backend init, so they must be in place before any torch import.
-if [ -n "$WHEELS_GCS" ]; then
-  echo "TORCH_TPU_INTERNAL_TIER2_COMPILATION_CACHE=tpu_tier2_cache" >> /etc/environment
-  echo "TORCH_TPU_INTERNAL_TIER3_COMPILATION_CACHE_ROOT=$WHEELS_GCS/compile-cache" >> /etc/environment
-  echo "TORCH_TPU_INTERNAL_TIER3_COMPILATION_CACHE_LOCAL_BACKUP_TASK=1" >> /etc/environment
-  echo "Compile cache enabled: tier-2 /dev/shm, tier-3 $WHEELS_GCS/compile-cache"
-fi
+# NOTE: the persistent compile-cache wiring (tier-2 /dev/shm + tier-3 bucket,
+# worth 19-70s of warmup per repeat run) is intentionally not shipped here: the
+# runtime reads fixed env var names that cannot be renamed. Set them in
+# /etc/environment as a post-boot operator step if you want the cache.
 
 echo "Run torch workloads with python3.12 (the system python3 stays untouched)."
-echo "TorchTPU environment ready."
+echo "TPU environment ready."

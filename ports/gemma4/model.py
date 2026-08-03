@@ -2,10 +2,10 @@
 
 Clean-room reimplementation of the text decoder of HF
 `transformers.models.gemma4.modeling_gemma4` (validated against transformers
-5.12.1), in the style of the upstream torch_tpu examples/gemma3 single-file
+5.12.1), in the style of the upstream backend examples/gemma3 single-file
 model:
 
-  * plain `torch` only — no transformers import, no torch_tpu import;
+  * plain `torch` only — no transformers import, no backend package import;
   * every projection is a named `nn.Linear` subclass (QProjLinear, ...) so
     quantized replacements can be swapped in later by class;
   * hand-rolled eager attention with explicit causal / sliding-window masks;

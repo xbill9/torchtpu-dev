@@ -31,7 +31,19 @@ import jax
 import numpy as np
 import torch
 
-from torch_tpu._internal import pallas  # registers the TPU backend
+import importlib
+import os
+
+# The PyTorch TPU backend package is not publicly distributable, so its name is
+# not committed here: set TPU_BACKEND_MODULE (e.g. in /etc/environment on the VM)
+# to the installed backend package. Imported dynamically for the Pallas bridge.
+_BACKEND = os.getenv("TPU_BACKEND_MODULE")
+if not _BACKEND:
+    raise RuntimeError(
+        "TPU_BACKEND_MODULE is not set — export it to the installed PyTorch TPU "
+        "backend package name so the Pallas bridge can be imported."
+    )
+pallas = importlib.import_module(f"{_BACKEND}._internal.pallas")  # registers the TPU backend
 
 import fused_experts_kernel as fek
 from quant_experts import GROUP_SIZE, W4A16Experts

@@ -2,7 +2,7 @@
 
 TPU-compile-friendly int4-quantized replacement for HF transformers 5.12.1's
 `Gemma4TextExperts` (the routed-experts module of `google/gemma-4-26B-A4B`).
-Plain torch only — no `torch_tpu` import, no PyTorch/XLA.
+Plain torch only — no backend package import, no PyTorch/XLA.
 
 ## What it replaces
 

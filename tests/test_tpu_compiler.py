@@ -3,7 +3,7 @@
 import unittest
 import torch
 import torch.nn as nn
-from torchtpu_compiler import compile_for_tpu, validate_tpu_inputs, get_tpu_compiler_backend
+from tpu_compiler import compile_for_tpu, validate_tpu_inputs, get_tpu_compiler_backend
 
 
 class SimpleMLP(nn.Module):
@@ -18,7 +18,7 @@ class SimpleMLP(nn.Module):
         return self.fc2(self.act(self.fc1(x)))
 
 
-class TestTorchTPUCompilerOptionA(unittest.TestCase):
+class TestTPUCompilerOptionA(unittest.TestCase):
 
     def test_validate_tpu_inputs(self):
         # 128 aligned tensor

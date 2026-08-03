@@ -44,3 +44,9 @@ coverage.xml
 # Local environment (contains live API keys)
 .env
 
+
+# Private / not-for-publication material (kept locally, never committed)
+pytorch.md
+docs/upstream/
+benchmarks/runs/2026-07-25-qat-e2b-torchtpu-v6e1/
+benchmarks/runs/2026-07-25-torchtpu-e2b-v6e1/

@@ -5,7 +5,7 @@ v1 module API.
 quantized layout, same `from_hf`); only `forward`'s dispatch differs:
 
   * decode-sized calls (T*K <= FUSED_MAX_SLICES): the fused Pallas kernel
-    (`fused_experts_kernel.fused_experts_forward` via the torch_tpu jax_op
+    (`fused_experts_kernel.fused_experts_forward` via the backend jax_op
     bridge). The expert-id gather of PACKED int32 slices + compact scales
     happens inside the same compiled jax graph (jnp.take — 0.5 B/weight,
     ~285 MB transient per layer at 26B decode dims) and dequantization
@@ -23,7 +23,7 @@ kernel — no data-dependent control flow.
 
 jax_op bridge notes (learned on real Mosaic): the wrapped fn must have type
 annotations on EVERY parameter and the return, and `jax` must be imported.
-The op is registered once at module import. On machines without torch_tpu
+The op is registered once at module import. On machines without the backend
 (local CPU dev) the module still imports and falls back to the v1 path.
 """
 
@@ -44,7 +44,10 @@ import fused_experts_kernel as fek  # noqa: E402
 from quant_experts import W4A16Experts  # noqa: E402
 
 try:
-    from torch_tpu._internal import pallas as _tt_pallas
+    import importlib as _il
+    import os as _os
+    # Backend package name is operator-supplied (not committed); see TPU_BACKEND_MODULE.
+    _tt_pallas = _il.import_module(f"{_os.environ['TPU_BACKEND_MODULE']}._internal.pallas")
 except ImportError:  # local CPU development / tests: v1 fallback only
     _tt_pallas = None
 
@@ -77,7 +80,7 @@ _moe_fused = (
 
 
 def fused_op_available() -> bool:
-    """True when the torch_tpu Pallas bridge registered the fused op."""
+    """True when the backend Pallas bridge registered the fused op."""
     return _moe_fused is not None
 
 

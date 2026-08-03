@@ -67,9 +67,9 @@ a multiple of 128). If real Mosaic rejects the 88-wide lane concat, pass
 padded with 0.0, which zeroes the padded weights regardless of nibble bits)
 giving fully aligned ck = 1024, ck8 = 128 at a 1.45x weight-read cost.
 
-This file is plain jax + numpy (no torch, no torch_tpu import); the TPU-side
+This file is plain jax + numpy (no torch, no backend import); the TPU-side
 torch bridge lives in fused_experts_bench_tpu.py via
-`torch_tpu._internal.pallas.jax_op`, mirroring the proven dense bench.
+the backend's `_internal.pallas.jax_op`, mirroring the proven dense bench.
 """
 
 from __future__ import annotations

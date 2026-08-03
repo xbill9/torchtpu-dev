@@ -1,7 +1,7 @@
-"""Option A: OpenAI-Compatible HTTP / SSE Server for TorchTPU.
+"""Option A: OpenAI-Compatible HTTP / SSE Server for the PyTorch TPU backend.
 
 Provides OpenAI API routes (/v1/chat/completions, /v1/completions, /health, /metrics)
-powered by the Option A TorchTPUEngine.
+powered by the Option A TPUEngine.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from torchtpu_engine import TorchTPUEngine
+from tpu_engine import TPUEngine
 
-logger = logging.getLogger("torchtpu_server")
+logger = logging.getLogger("tpu_server")
 
 
 # Request/Response schemas
@@ -45,8 +45,8 @@ class CompletionRequest(BaseModel):
 
 
 def create_app(engine: Any = None) -> FastAPI:
-    """Create FastAPI app with Option A TorchTPUEngine dependency."""
-    app = FastAPI(title="TorchTPU Option A Server", version="1.0.0")
+    """Create FastAPI app with Option A TPUEngine dependency."""
+    app = FastAPI(title="the PyTorch TPU backend Option A Server", version="1.0.0")
 
     app.add_middleware(
         CORSMiddleware,
@@ -60,7 +60,7 @@ def create_app(engine: Any = None) -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "healthy", "backend": "Option A TorchTPU"}
+        return {"status": "healthy", "backend": "Option A the PyTorch TPU backend"}
 
     @app.get("/metrics")
     async def metrics():
@@ -75,7 +75,7 @@ def create_app(engine: Any = None) -> FastAPI:
                     "id": "google/gemma-4-E2B-it",
                     "object": "model",
                     "created": int(time.time()),
-                    "owned_by": "torchtpu",
+                    "owned_by": "tpu",
                 }
             ],
         }

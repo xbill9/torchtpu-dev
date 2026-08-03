@@ -1,20 +1,20 @@
 #!/usr/bin/env python3.12
-"""Run a stock Hugging Face causal LM on TPU via TorchTPU.
+"""Run a stock Hugging Face causal LM on TPU via PyTorch TPU backend.
 
 Copy to a workload="pytorch" TPU VM and run with the dedicated interpreter:
 
-    python3.12 torchtpu_generate.py --prompt "Why are TPUs fast?"
-    python3.12 torchtpu_generate.py --compile   # torch.compile(backend="tpu")
+    python3.12 tpu_generate.py --prompt "Why are TPUs fast?"
+    python3.12 tpu_generate.py --compile   # torch.compile(backend="tpu")
 
-Needs `transformers` next to torch_tpu — create the VM with
-TORCH_TPU_PIP_SPEC="torch_tpu transformers" or install it on the VM with the
+Needs `transformers` next to the backend — create the VM with
+TPU_BACKEND_PIP_SPEC="<backend-pkg> transformers" or install it on the VM with the
 same authenticated `pip install` the startup script logs.
 
 Gated models (Gemma) need a Hugging Face token: set HF_TOKEN, or leave it unset
 and the script fetches the `hf-token` Secret Manager secret via the VM's
 metadata service account (same pattern as the vLLM startup script).
 
-TorchTPU rules honored here: plain torch (no `import torch_tpu`, no torch_xla),
+the PyTorch TPU backend rules honored here: plain torch (no backend import, no torch_xla),
 device="tpu", bfloat16, inputs padded to a multiple of 128, no prints or
 `.item()` inside the compiled forward.
 """
@@ -83,7 +83,7 @@ def main() -> int:
     print(f"Loaded {model.num_parameters():,} params in {time.monotonic() - t0:.1f}s")
 
     if args.compile:
-        from torchtpu_compiler import compile_for_tpu
+        from tpu_compiler import compile_for_tpu
         model.forward = compile_for_tpu(model.forward)
 
     messages = [{"role": "user", "content": args.prompt}]

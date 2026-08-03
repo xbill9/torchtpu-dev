@@ -1,7 +1,7 @@
-"""Option A: Staged PyTorch 2.0 TorchDynamo / torch.compile Backend for TorchTPU.
+"""Option A: Staged PyTorch 2.0 TorchDynamo / torch.compile Backend for the PyTorch TPU backend.
 
 Provides a clean, modular backend interface for PyTorch 2.0 compilation:
-- When running on a TorchTPU-enabled environment: delegates directly to backend="tpu"
+- When running on a PyTorch TPU backend-enabled environment: delegates directly to backend="tpu"
 - When running in a staging environment (CPU/GPU/XLA): uses a clean PyTorch FX Dynamo
   compiler wrapper that enforces TPU-readiness rules (bfloat16, 128-alignment, no graph breaks).
 """
@@ -13,7 +13,7 @@ from typing import Any, Callable, Generator, Protocol
 import torch
 import torch.fx
 
-logger = logging.getLogger("torchtpu_compiler")
+logger = logging.getLogger("tpu_compiler")
 
 
 class LLMEngine(Protocol):
@@ -24,7 +24,7 @@ class LLMEngine(Protocol):
 
 
 def validate_tpu_inputs(inputs: dict[str, torch.Tensor] | torch.Tensor) -> None:
-    """Enforce TorchTPU rules: 128-alignment and bfloat16/int precision."""
+    """Enforce the PyTorch TPU backend rules: 128-alignment and bfloat16/int precision."""
     tensors = inputs.values() if isinstance(inputs, dict) else [inputs]
     for t in tensors:
         if not isinstance(t, torch.Tensor):
@@ -51,7 +51,7 @@ def staging_fx_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
             if "item" in getattr(node.target, "__name__", ""):
                 raise ValueError(
                     f"Forbidden scalar conversion '.item()' detected in node {node.name}. "
-                    "TorchTPU requires graph-break-free forward passes."
+                    "the PyTorch TPU backend requires graph-break-free forward passes."
                 )
 
     # Recompile FX graph module
@@ -66,7 +66,7 @@ def staging_fx_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
 def get_tpu_compiler_backend(force_staging: bool = False) -> str | Callable:
     """Get the appropriate torch.compile backend.
 
-    Returns 'tpu' string when on native TorchTPU runtime, or staging_fx_backend
+    Returns 'tpu' string when on native the PyTorch TPU backend runtime, or staging_fx_backend
     when staging or testing off-TPU.
     """
     if not force_staging:

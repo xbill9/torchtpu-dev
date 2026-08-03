@@ -7,8 +7,7 @@ Guidance for Claude Code when working in this repository.
 This repository packages one Claude Code skill (`tpu-management`) and one **Model Context Protocol (MCP) server** (`tpu-devops`, a FastMCP app in `server.py`). Together they:
 
 1. **Operate TPU infrastructure:** find, provision, and destroy Google Cloud TPU capacity (flex-start VMs, queued resources) and run Gemma 4 vLLM serving on it.
-2. **Run PyTorch (TorchTPU) on TPU:** provision flex-start VMs with `workload="pytorch"` — the startup script installs PyTorch + the TorchTPU backend and smoke-tests `torch.compile(backend="tpu")` (`wait_for_pytorch_ready`, `verify_pytorch_tpu`).
-3. **Do SRE diagnostics:** verify model health, fetch vLLM/system/Cloud Logging logs, and use the self-hosted Gemma 4 model to triage them (`analyze_cloud_logging`).
+2. **Do SRE diagnostics:** verify model health, fetch vLLM/system/Cloud Logging logs, and use the self-hosted Gemma 4 model to triage them (`analyze_cloud_logging`).
 
 ## Repository Layout & the Snapshot Sync Model
 
@@ -44,15 +43,6 @@ When managing TPU deployments or customizing vLLM serving, apply these vLLM para
 - **Tool parsing:** `--enable-auto-tool-choice`, `--tool-call-parser gemma4`, and `--reasoning-parser gemma4` for native function-calling compatibility
 - **Multimodal configuration:** `--limit-mm-per-prompt '{"image":4,"audio":1}'` and `--max_num_batched_tokens 4096`
 - **Universal SRE help:** the agent exposes a standardized `get_help` tool describing its active configuration environment variables and all exposed tools
-
-## Technical Standards: PyTorch (TorchTPU) on TPU
-
-When writing or reviewing PyTorch code destined for the TPU VMs this repo provisions (see the SKILL.md "PyTorch (TorchTPU) on TPU" section for the full list and references):
-
-- **Plain `torch` only:** never `import torch_tpu` (installing the package registers the TPU backend) and never PyTorch/XLA (`torch_xla`) — flag either on sight. Target the TPU with `torch.device("tpu")` / `device="tpu"`; `.cpu()` forces materialization.
-- **Never pip-install `torch` manually** on TorchTPU VMs: the authenticated torch_tpu index pulls the matching CPU torch automatically. TorchTPU requires Python 3.12 — the startup script installs a dedicated `python3.12` interpreter and pip-installs directly into it (no venv, per this repo's standard; the separate interpreter provides the isolation the upstream quickstart's venv is for). Run workloads with `python3.12`, not `python3`.
-- **Compile for TPU:** `torch.compile(model, backend="tpu")`; avoid graph breaks in compiled forward passes (no Python control flow on tensor values, `.item()`, or prints).
-- **MXU-friendly shapes and dtype:** batch sizes / tensor dims in multiples of 128 (or at least 8/16); prefer `torch.bfloat16` (native on the MXU — float32 is emulated).
 
 ## Coding Standards
 

@@ -119,7 +119,7 @@ def load_hf_model(model_id: str):
 def main() -> int:
     device = torch.device("tpu")
     assert quant_experts_v2.fused_op_available(), \
-        "torch_tpu Pallas bridge missing — this bench would silently run v1"
+        "backend Pallas bridge missing — this bench would silently run v1"
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL)
     config = json.load(open(hf_hub_download(MODEL, "config.json")))
     text_config = config.get("text_config", config)

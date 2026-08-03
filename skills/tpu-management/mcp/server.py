@@ -68,31 +68,30 @@ MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-31B-it")
 HF_SECRET_ID = "hf-token"
 ACCELERATOR_TYPE = os.getenv("ACCELERATOR_TYPE", "v6e-8")
 TENSOR_PARALLEL_SIZE = int(os.getenv("TENSOR_PARALLEL_SIZE", "8"))
-# Packages the pytorch-workload startup script installs, per the TorchTPU
-# quickstart (github.com/google-pytorch/torch_tpu): torch_tpu comes from a
-# private Artifact Registry index (token spliced in at boot) and pulls the
-# matching CPU torch automatically — never add torch itself here. Extend for
-# extras (e.g. "torch_tpu transformers") or pins without editing the template.
-# torch==2.11.0+cpu pin: the nightly torch_tpu wheels leave their torch
-# dependency unconstrained, so pip otherwise resolves a newer torch whose ABI
-# the extension .so wasn't built against (verified failure on 2.13). Drop the
-# pin when upstream constrains it.
-TORCH_TPU_PIP_SPEC = os.getenv("TORCH_TPU_PIP_SPEC", "torch_tpu torch==2.11.0+cpu")
-TORCH_TPU_INDEX = os.getenv(
-    "TORCH_TPU_INDEX",
-    "us-python.pkg.dev/ml-oss-artifacts-transient/torch-tpu-virtual-registry/simple/",
-)
-# Project-owned GCS mirror of the two private wheels (custom torch base +
-# torch_tpu extension, per the TorchTPU GDE quickstart's wheel install path).
-# The startup script tries this FIRST: the default compute SA typically cannot
-# read Google's Artifact Registry (no grantable IAM), but a bucket in our own
-# project is. Missing bucket/objects fall through to the index. Empty disables.
-TORCH_TPU_WHEELS_GCS = os.getenv("TORCH_TPU_WHEELS_GCS", f"gs://{PROJECT_ID}-torchtpu-wheels")
+# Packages the pytorch-workload startup script installs, per the PyTorch TPU backend
+# PyTorch TPU backend install config. Deliberately has NO defaults: the backend
+# packages and their index are not publicly distributable, so the package name,
+# the pip index host, and the wheel-mirror bucket are supplied by the operator
+# at deploy time and never committed here. `workload="pytorch"` aborts with an
+# explicit message when TPU_BACKEND_PIP_SPEC / TPU_BACKEND_INDEX are unset.
+#
+# Pin the CPU torch build in TPU_BACKEND_PIP_SPEC (e.g. "<pkg> torch==2.11.0+cpu"):
+# the nightly backend wheels leave their torch dependency unconstrained, so pip
+# otherwise resolves a newer torch whose ABI the extension .so was not built
+# against (verified failure on 2.13). Never add plain `torch` on its own — the
+# backend index pulls the matching CPU build automatically.
+TPU_BACKEND_PIP_SPEC = os.getenv("TPU_BACKEND_PIP_SPEC", "")
+TPU_BACKEND_INDEX = os.getenv("TPU_BACKEND_INDEX", "")
+# Project-owned GCS mirror of the backend wheels. The startup script tries this
+# FIRST: the default compute SA typically cannot read the upstream Artifact
+# Registry (no grantable IAM), but a bucket in our own project it can. Missing
+# bucket/objects fall through to the index. Empty disables the mirror.
+TPU_BACKEND_WHEELS_GCS = os.getenv("TPU_BACKEND_WHEELS_GCS", "")
 # Public-PyPI extras installed after the TPU stack: the standard kit for the
 # QAT / custom-kernel work (compressed-tensors checkpoints, Pallas via jax,
 # chat templates need jinja2>=3.1). Best-effort at boot; failure is non-fatal.
-TORCH_TPU_PIP_EXTRAS = os.getenv(
-    "TORCH_TPU_PIP_EXTRAS",
+TPU_BACKEND_PIP_EXTRAS = os.getenv(
+    "TPU_BACKEND_PIP_EXTRAS",
     # setuptools<81: tensorboard/xprof need pkg_resources (removed in 81).
     "transformers compressed-tensors 'jinja2>=3.1' jax "
     "'setuptools<81' xprof tensorboard-plugin-profile",
@@ -254,14 +253,29 @@ def _get_formatted_startup_script(model_name: str, zone: str, tp_size: Optional[
 
 
 def _get_pytorch_startup_script(zone: str) -> str:
-    """Formats the PyTorch (TorchTPU) startup script template: installs the torch
-    TPU stack (a dedicated python3.12 interpreter — no venv — with torch_tpu from
+    """Formats the PyTorch (the PyTorch TPU backend) startup script template: installs the torch
+    TPU stack (a dedicated python3.12 interpreter — no venv — with the backend from
     its authenticated Artifact Registry index) on the bare VM and runs a compile
     smoke test — no docker, no vLLM, and no Hugging Face token required.
 
     Raises RuntimeError if the template is missing or malformed; callers must not
     create infrastructure with a broken startup script.
     """
+    missing = [
+        name
+        for name, value in (
+            ("TPU_BACKEND_PIP_SPEC", TPU_BACKEND_PIP_SPEC),
+            ("TPU_BACKEND_INDEX", TPU_BACKEND_INDEX),
+        )
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            f"{' and '.join(missing)} must be set to provision a PyTorch TPU VM. "
+            "The backend packages are not publicly distributable, so this repo ships no "
+            "default package name or index — export them (and optionally "
+            "TPU_BACKEND_WHEELS_GCS for the wheel mirror) in the MCP server's environment."
+        )
     template_path = os.path.join(os.path.dirname(__file__), "startup_script_pytorch_template.sh")
     try:
         with open(template_path, "r") as f:
@@ -269,10 +283,10 @@ def _get_pytorch_startup_script(zone: str) -> str:
         return template.format(
             project_id=PROJECT_ID,
             zone=zone,
-            torch_pip_spec=TORCH_TPU_PIP_SPEC,
-            torch_index=TORCH_TPU_INDEX,
-            wheels_gcs=TORCH_TPU_WHEELS_GCS,
-            torch_pip_extras=TORCH_TPU_PIP_EXTRAS,
+            torch_pip_spec=TPU_BACKEND_PIP_SPEC,
+            torch_index=TPU_BACKEND_INDEX,
+            wheels_gcs=TPU_BACKEND_WHEELS_GCS,
+            torch_pip_extras=TPU_BACKEND_PIP_EXTRAS,
         )
     except Exception as e:
         raise RuntimeError(f"Cannot build startup script from {template_path}: {e}") from e
@@ -690,17 +704,17 @@ async def create_tpu_vm_instance(
     request_valid_for: str = "2h",
     workload: Annotated[
         Literal["vllm", "pytorch"],
-        Field(description="'vllm' serves model_name via docker; 'pytorch' installs the TorchTPU stack for direct torch workloads"),
+        Field(description="'vllm' serves model_name via docker; 'pytorch' installs the PyTorch TPU backend stack for direct torch workloads"),
     ] = "vllm",
 ) -> str:
     """Creates a flex-start TPU VM as a GCE instance (recommended path for v6e/v5p).
     workload='vllm' auto-starts Gemma 4 serving via the vLLM startup script;
-    workload='pytorch' instead installs PyTorch + the TorchTPU backend on the bare VM
+    workload='pytorch' instead installs PyTorch + the PyTorch TPU backend backend on the bare VM
     and smoke-tests torch.compile(backend="tpu") — no docker, no HF token needed.
     Boot disk defaults to 200GB because the image default (10GB) cannot hold the
     vLLM TPU image."""
     zone = _zone(zone)
-    instance_name = instance_name or ("torchtpu-vm" if workload == "pytorch" else "vllm-gemma4-vm")
+    instance_name = instance_name or ("tpu-vm" if workload == "pytorch" else "vllm-gemma4-vm")
     if accelerator not in _GCE_MACHINE_TYPES:
         supported = ", ".join(sorted(_GCE_MACHINE_TYPES))
         return f"❌ Unsupported accelerator '{accelerator}'. Supported: {supported}"
@@ -776,7 +790,7 @@ async def create_tpu_vm_instance(
     if workload == "pytorch":
         return (
             f"🚀 Flex-start TPU VM `{instance_name}` ({machine_type}, {chips} chip(s)) created in {zone}; "
-            f"installing PyTorch + TorchTPU (`{TORCH_TPU_PIP_SPEC}`). Follow with `wait_for_pytorch_ready` "
+            f"installing PyTorch + the PyTorch TPU backend (`{TPU_BACKEND_PIP_SPEC}`). Follow with `wait_for_pytorch_ready` "
             f"or `get_tpu_vm_serial_log`, then `verify_pytorch_tpu`; the VM self-deletes at "
             f"max-run-duration ({max_run_duration}).\n{stdout}"
         )
@@ -833,7 +847,7 @@ async def get_tpu_vm_serial_log(
     """Tails the serial-console output of a GCE TPU VM. SSH to TPU VMs is often blocked by
     firewall policy, so this is the primary way to watch startup-script/vLLM boot progress.
     Success markers: 'vLLM application startup complete.' (vllm workload) or
-    'TorchTPU environment ready.' (pytorch workload)."""
+    'TPU environment ready.' (pytorch workload)."""
     zone = _zone(zone)
     cmd = [
         "gcloud",
@@ -850,7 +864,7 @@ async def get_tpu_vm_serial_log(
     lines = stdout.splitlines()
     # Show output from the most recent startup-script run when a marker is present.
     for i in range(len(lines) - 1, -1, -1):
-        if "Starting Queued vLLM Bootloader" in lines[i] or "Starting TorchTPU Bootloader" in lines[i]:
+        if "Starting Queued vLLM Bootloader" in lines[i] or "Starting the PyTorch TPU backend Bootloader" in lines[i]:
             lines = lines[i:]
             break
     return "\n".join(lines[-tail:]) if lines else "No serial output available yet."
@@ -948,23 +962,23 @@ async def wait_for_vllm_ready(
         await asyncio.sleep(30)
 
 
-@mcp.tool(title="Wait for PyTorch/TorchTPU ready", annotations=READ_ONLY)
+@mcp.tool(title="Wait for PyTorch/the PyTorch TPU backend ready", annotations=READ_ONLY)
 async def wait_for_pytorch_ready(
-    instance_name: str = "torchtpu-vm",
+    instance_name: str = "tpu-vm",
     zone: Optional[str] = None,
     timeout_minutes: Annotated[int, Field(ge=1, le=30)] = 10,
 ) -> str:
     """Polls a workload='pytorch' flex-start TPU VM every 30s until the startup script
-    reports 'TorchTPU environment ready.' on the serial console (torch installed and
+    reports 'TPU environment ready.' on the serial console (torch installed and
     the compile smoke test passed). Fails fast if the script logs an ERROR."""
     zone = _zone(zone)
     deadline = time.monotonic() + timeout_minutes * 60
     last_signal = "no serial output yet"
     while True:
         serial = await get_tpu_vm_serial_log(instance_name, zone=zone, tail=40)
-        if "TorchTPU environment ready." in serial:
+        if "TPU environment ready." in serial:
             return (
-                f"🟢 TorchTPU environment ready on `{instance_name}`. Verify any time with "
+                f"🟢 TPU environment ready on `{instance_name}`. Verify any time with "
                 "`verify_pytorch_tpu`; run workloads over SSH with the system python3."
             )
         error_lines = [line for line in serial.splitlines() if line.startswith("ERROR:")]
@@ -983,20 +997,20 @@ async def wait_for_pytorch_ready(
 
 @mcp.tool(title="Verify PyTorch sees the TPU", annotations=READ_ONLY)
 async def verify_pytorch_tpu(
-    instance_name: Optional[str] = "torchtpu-vm",
+    instance_name: Optional[str] = "tpu-vm",
     resource_id: str = "vllm-gemma4-qr",
     zone: Optional[str] = None,
 ) -> str:
-    """Reruns the TorchTPU smoke test (/opt/torchtpu_smoke.py, installed by the
+    """Reruns the PyTorch TPU backend smoke test (/opt/tpu_smoke.py, installed by the
     pytorch startup script) on the VM over SSH: checks torch.accelerator sees the
     TPU and a torch.compile(backend="tpu") matmul runs. Targets a GCE flex-start VM
     via instance_name (default) or a queued resource's node via resource_id when
     instance_name is None/empty."""
     zone = _zone(zone)
     remote_cmd = (
-        "if command -v python3.12 >/dev/null && [ -f /opt/torchtpu_smoke.py ]; then "
-        "python3.12 /opt/torchtpu_smoke.py; "
-        "else echo 'ERROR: TorchTPU env not found — was this VM created with workload=pytorch?'; exit 1; fi"
+        "if command -v python3.12 >/dev/null && [ -f /opt/tpu_smoke.py ]; then "
+        "python3.12 /opt/tpu_smoke.py; "
+        "else echo 'ERROR: the PyTorch TPU backend env not found — was this VM created with workload=pytorch?'; exit 1; fi"
     )
     argv, target = await _build_tpu_ssh_cmd(remote_cmd, resource_id, instance_name, zone)
     if argv is None:
@@ -1004,21 +1018,21 @@ async def verify_pytorch_tpu(
     rc, stdout, stderr = await run_command(argv, timeout=300)
     output = "\n".join(part for part in (stdout, stderr) if part).strip()
     if rc != 0:
-        return f"❌ TorchTPU smoke test failed on `{target}`:\n{output}"
-    return f"🟢 TorchTPU smoke test passed on `{target}`:\n{output}"
+        return f"❌ the PyTorch TPU backend smoke test failed on `{target}`:\n{output}"
+    return f"🟢 the PyTorch TPU backend smoke test passed on `{target}`:\n{output}"
 
 
-@mcp.tool(title="Update TorchTPU wheels", annotations=WRITE)
-async def update_torchtpu(
-    instance_name: Optional[str] = "torchtpu-vm",
+@mcp.tool(title="Update the PyTorch TPU backend wheels", annotations=WRITE)
+async def update_tpu(
+    instance_name: Optional[str] = "tpu-vm",
     resource_id: str = "vllm-gemma4-qr",
     zone: Optional[str] = None,
     version: Annotated[
         Optional[str],
-        Field(description="Pin torch_tpu to this exact version; omit for the latest nightly"),
+        Field(description="Pin the backend to this exact version; omit for the latest nightly"),
     ] = None,
 ) -> str:
-    """Upgrades torch_tpu in place on a workload='pytorch' VM: fetches a fresh
+    """Upgrades the PyTorch TPU backend in place on a workload='pytorch' VM: fetches a fresh
     access token from the metadata server, pip-installs the latest nightly (or
     `version` if pinned) from the authenticated index, reports the old -> new
     version, and reruns the compile smoke test. The paired CPU torch bumps
@@ -1028,22 +1042,29 @@ async def update_torchtpu(
     (default) or a queued resource's node via resource_id when instance_name is
     None/empty."""
     zone = _zone(zone)
-    pkg_spec = f"torch_tpu=={version}" if version else TORCH_TPU_PIP_SPEC
+    # First token of the operator-supplied spec is the backend package; the rest are pins.
+    base_pkg = TPU_BACKEND_PIP_SPEC.split()[0].split("==")[0] if TPU_BACKEND_PIP_SPEC else ""
+    if not base_pkg or not TPU_BACKEND_INDEX:
+        return (
+            "❌ TPU_BACKEND_PIP_SPEC and TPU_BACKEND_INDEX must be set to update the backend; "
+            "this repo ships no default package name or index."
+        )
+    pkg_spec = f"{base_pkg}=={version}" if version else TPU_BACKEND_PIP_SPEC
     remote_cmd = (
         "set -e; "
-        "if ! command -v python3.12 >/dev/null || [ ! -f /opt/torchtpu_smoke.py ]; then "
-        "echo 'ERROR: TorchTPU env not found — was this VM created with workload=pytorch?'; exit 1; fi; "
+        "if ! command -v python3.12 >/dev/null || [ ! -f /opt/tpu_smoke.py ]; then "
+        "echo 'ERROR: the PyTorch TPU backend env not found — was this VM created with workload=pytorch?'; exit 1; fi; "
         'TOKEN=$(curl -sf -H "Metadata-Flavor: Google" '
         '"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" '
         "| python3 -c 'import json,sys; print(json.load(sys.stdin)[\"access_token\"])'); "
         '[ -n "$TOKEN" ] || { echo "ERROR: could not fetch a metadata access token"; exit 1; }; '
-        "OLD=$(python3.12 -m pip show torch_tpu 2>/dev/null | sed -n 's/^Version: //p'); "
+        f"OLD=$(python3.12 -m pip show {base_pkg} 2>/dev/null | sed -n 's/^Version: //p'); "
         "python3.12 -m pip install --upgrade --pre --break-system-packages "
-        f'--index-url "https://oauth2accesstoken:$TOKEN@{TORCH_TPU_INDEX}" {pkg_spec}; '
-        "NEW=$(python3.12 -m pip show torch_tpu 2>/dev/null | sed -n 's/^Version: //p'); "
-        "echo \"torch_tpu: ${OLD:-none} -> ${NEW:-none}\"; "
+        f'--index-url "https://oauth2accesstoken:$TOKEN@{TPU_BACKEND_INDEX}" {pkg_spec}; '
+        f"NEW=$(python3.12 -m pip show {base_pkg} 2>/dev/null | sed -n 's/^Version: //p'); "
+        'echo "' + base_pkg + ': ${OLD:-none} -> ${NEW:-none}"; '
         "echo 'Rerunning smoke test...'; "
-        "python3.12 /opt/torchtpu_smoke.py"
+        "python3.12 /opt/tpu_smoke.py"
     )
     argv, target = await _build_tpu_ssh_cmd(remote_cmd, resource_id, instance_name, zone)
     if argv is None:
@@ -1052,8 +1073,8 @@ async def update_torchtpu(
     rc, stdout, stderr = await run_command(argv, timeout=590)
     output = "\n".join(part for part in (stdout, stderr) if part).strip()
     if rc != 0:
-        return f"❌ TorchTPU update failed on `{target}`:\n{output}"
-    return f"🟢 TorchTPU updated on `{target}` (smoke test passed):\n{output}"
+        return f"❌ the PyTorch TPU backend update failed on `{target}`:\n{output}"
+    return f"🟢 the PyTorch TPU backend updated on `{target}` (smoke test passed):\n{output}"
 
 
 async def _get_zones_with_available_quota_list(
@@ -1281,7 +1302,7 @@ async def find_tpu_vm(
     ] = "5m",
     workload: Annotated[
         Literal["vllm", "pytorch"],
-        Field(description="'vllm' serves model_name via docker; 'pytorch' installs the TorchTPU stack for direct torch workloads"),
+        Field(description="'vllm' serves model_name via docker; 'pytorch' installs the PyTorch TPU backend stack for direct torch workloads"),
     ] = "vllm",
 ) -> str:
     """GCE counterpart of `find_tpu`: tries flex-start TPU VM creation across zones
@@ -1290,7 +1311,7 @@ async def find_tpu_vm(
     attempt's request expires after `per_zone_wait` so no pending requests pile up.
     On success, switches the server's default zone to the winning zone. Follow up
     with `wait_for_vllm_ready` (or `wait_for_pytorch_ready` for workload='pytorch')."""
-    instance_name = instance_name or ("torchtpu-vm" if workload == "pytorch" else "vllm-gemma4-vm")
+    instance_name = instance_name or ("tpu-vm" if workload == "pytorch" else "vllm-gemma4-vm")
     candidate_zones = zones or await _get_zones_with_available_quota_list()
     if not candidate_zones:
         return "❌ No candidate zones: no zones with TPU quota found — pass `zones` explicitly."
@@ -1970,17 +1991,17 @@ async def get_help() -> str:
         f"  - *Current Value:* `{ACCELERATOR_TYPE}`\n"
         f"- **`TENSOR_PARALLEL_SIZE`**: Tensor parallel size for serving.\n"
         f"  - *Current Value:* `{TENSOR_PARALLEL_SIZE}`\n"
-        f"- **`TORCH_TPU_PIP_SPEC`**: Pip packages installed by workload='pytorch' VMs "
-        "(torch_tpu pulls the matching CPU torch automatically — never add torch here).\n"
-        f"  - *Current Value:* `{TORCH_TPU_PIP_SPEC}`\n"
-        f"- **`TORCH_TPU_INDEX`**: Artifact Registry pip index for torch_tpu (token spliced in at boot).\n"
-        f"  - *Current Value:* `{TORCH_TPU_INDEX}`\n"
-        f"- **`TORCH_TPU_WHEELS_GCS`**: project-owned GCS mirror of the torch/torch_tpu wheels; "
+        f"- **`TPU_BACKEND_PIP_SPEC`**: Pip packages installed by workload='pytorch' VMs "
+        "(the backend index pulls the matching CPU torch automatically — never add torch here).\n"
+        f"  - *Current Value:* `{TPU_BACKEND_PIP_SPEC}`\n"
+        f"- **`TPU_BACKEND_INDEX`**: Artifact Registry pip index for the backend (token spliced in at boot).\n"
+        f"  - *Current Value:* `{TPU_BACKEND_INDEX}`\n"
+        f"- **`TPU_BACKEND_WHEELS_GCS`**: project-owned GCS mirror of the backend wheels; "
         "tried before the index (the VM SA can read our bucket but usually not Google's registry). "
         "Empty disables.\n"
-        f"  - *Current Value:* `{TORCH_TPU_WHEELS_GCS}`\n"
-        f"- **`TORCH_TPU_PIP_EXTRAS`**: public-PyPI extras installed after the TPU stack (QAT kit).\n"
-        f"  - *Current Value:* `{TORCH_TPU_PIP_EXTRAS}`\n\n"
+        f"  - *Current Value:* `{TPU_BACKEND_WHEELS_GCS}`\n"
+        f"- **`TPU_BACKEND_PIP_EXTRAS`**: public-PyPI extras installed after the TPU stack (QAT kit).\n"
+        f"  - *Current Value:* `{TPU_BACKEND_PIP_EXTRAS}`\n\n"
         "A Hugging Face token must exist as Secret Manager secret `hf-token` "
         "(save one with `save_hf_token`) before vLLM resource creation "
         "(workload='pytorch' VMs don't need it).\n\n"
@@ -1988,13 +2009,13 @@ async def get_help() -> str:
         "### 🧰 Available MCP Tools\n\n"
         "#### 🐳 Capacity & Lifecycle — GCE flex-start TPU VMs (recommended for v6e/v5p)\n"
         "- **`create_tpu_vm_instance`**: Creates a flex-start TPU VM via GCE; workload='vllm' auto-starts "
-        "serving, workload='pytorch' installs the PyTorch/TorchTPU stack instead.\n"
+        "serving, workload='pytorch' installs the PyTorch/the PyTorch TPU backend stack instead.\n"
         "- **`find_tpu_vm`**: Sweeps zones attempting flex-start creation until one grants capacity "
         "(same workload choice).\n"
         "- **`wait_for_vllm_ready`**: Polls health endpoint + serial marker until serving is up (~10 min loads).\n"
-        "- **`wait_for_pytorch_ready`**: Polls the serial marker until the TorchTPU environment is ready.\n"
-        "- **`verify_pytorch_tpu`**: Reruns the TorchTPU smoke test (torch.compile backend=\"tpu\") over SSH.\n"
-        "- **`update_torchtpu`**: In-place upgrade of the torch_tpu nightly (or a pinned version) + smoke test.\n"
+        "- **`wait_for_pytorch_ready`**: Polls the serial marker until the PyTorch TPU backend environment is ready.\n"
+        "- **`verify_pytorch_tpu`**: Reruns the PyTorch TPU backend smoke test (torch.compile backend=\"tpu\") over SSH.\n"
+        "- **`update_tpu`**: In-place upgrade of the backend nightly (or a pinned version) + smoke test.\n"
         "- **`list_tpu_vm_instances`**: Lists GCE TPU VM instances (ct6e/ct5p) with IPs and status.\n"
         "- **`destroy_tpu_vm_instance`**: Deletes a GCE TPU VM instance (stops flex-start billing).\n"
         "- **`get_tpu_vm_serial_log`**: Tails a GCE TPU VM's serial console (boot/vLLM progress when SSH is blocked).\n"
