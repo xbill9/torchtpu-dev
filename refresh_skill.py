@@ -31,6 +31,15 @@ NOTE_TEMPLATE = """\
 
 
 def build_guide(src: Path, dest: Path) -> None:
+    # tpu.md is private and gitignored, so a fresh clone legitimately lacks it.
+    # Keep whatever guide snapshot is already committed rather than aborting the
+    # whole refresh — otherwise every other snapshot silently goes stale too.
+    if not src.exists():
+        print(
+            f"warning: {src.name} not found — keeping the existing "
+            f"{dest.relative_to(ROOT)} (regenerate it where {src.name} is present)"
+        )
+        return
     lines = src.read_text().splitlines()
     kept = [line for line in lines if not IMAGE_DEF.match(line)]
     while kept and not kept[-1].strip():

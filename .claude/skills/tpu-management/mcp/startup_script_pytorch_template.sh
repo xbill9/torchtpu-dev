@@ -197,10 +197,25 @@ if [ "$SMOKE_OK" -eq 0 ]; then
   exit 1
 fi
 
-# NOTE: the persistent compile-cache wiring (tier-2 /dev/shm + tier-3 bucket,
-# worth 19-70s of warmup per repeat run) is intentionally not shipped here: the
-# runtime reads fixed env var names that cannot be renamed. Set them in
-# /etc/environment as a post-boot operator step if you want the cache.
+# Operator-supplied environment exports, written to /etc/environment so that
+# non-interactive SSH commands (how the MCP tools and benchmarks run) inherit
+# them. Backend env vars lock at init, so they must land before any torch
+# import. This is deliberately a generic KEY=VALUE passthrough: the backend's
+# own variable names are fixed by its runtime and are not committed here, so
+# the operator supplies them (newline- or space-separated) via
+# TPU_BACKEND_ENV_EXPORTS. The persistent compile cache — tier-2 in /dev/shm
+# plus a tier-3 bucket root, worth 19-70s of warmup per repeat run — is
+# configured this way.
+ENV_EXPORTS="{env_exports}"
+if [ -n "$ENV_EXPORTS" ]; then
+  echo "Writing operator-supplied environment exports to /etc/environment..."
+  for KV in $ENV_EXPORTS; do
+    case "$KV" in
+      *=*) echo "$KV" >> /etc/environment; echo "  set ${{KV%%=*}}" ;;
+      *) echo "  skipping malformed export (no '='): $KV" ;;
+    esac
+  done
+fi
 
 echo "Run torch workloads with python3.12 (the system python3 stays untouched)."
 echo "TPU environment ready."

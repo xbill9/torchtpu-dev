@@ -121,7 +121,17 @@ Edit the repo-root sources (`server.py`, `tpu.md`, `project-setup.sh`), then run
 
 ## ⚙️ Configuration
 
-The server reads its configuration from environment variables: `GOOGLE_CLOUD_PROJECT` (falls back to the active gcloud config), `GOOGLE_CLOUD_ZONE` (default `europe-west4-a`), `GOOGLE_CLOUD_REGION`, `MODEL_NAME`, `ACCELERATOR_TYPE`, and `TENSOR_PARALLEL_SIZE`. Prerequisites: `pip install -r requirements.txt`, an authenticated `gcloud` CLI with alpha components, the TPU API enabled, and — for vLLM serving only — a Hugging Face token stored as Secret Manager secret `hf-token` (the `save_hf_token` tool does this for you).
+The server reads its configuration from environment variables: `GOOGLE_CLOUD_PROJECT` (falls back to the active gcloud config), `GOOGLE_CLOUD_ZONE` (default `europe-west4-a`), `GOOGLE_CLOUD_REGION`, `MODEL_NAME`, `ACCELERATOR_TYPE`, and `TENSOR_PARALLEL_SIZE`.
+
+Provisioning a `workload="pytorch"` VM additionally requires the PyTorch TPU backend
+install config, which ships with **no defaults** because those packages are not publicly
+distributable — set them in the MCP server's environment: `TPU_BACKEND_PIP_SPEC` (package
+plus the matching `torch==<ver>+cpu` pin), `TPU_BACKEND_INDEX` (authenticated pip index
+host), and optionally `TPU_BACKEND_WHEELS_GCS` (project-owned wheel mirror bucket, tried
+before the index), `TPU_BACKEND_PIP_EXTRAS`, and `TPU_BACKEND_ENV_EXPORTS` (space- or
+newline-separated `KEY=VALUE` pairs appended to the VM's `/etc/environment` — this is how
+the backend's persistent compile-cache variables are supplied). Creation aborts with an
+explicit message when the first two are unset. Prerequisites: `pip install -r requirements.txt`, an authenticated `gcloud` CLI with alpha components, the TPU API enabled, and — for vLLM serving only — a Hugging Face token stored as Secret Manager secret `hf-token` (the `save_hf_token` tool does this for you).
 
 ---
 

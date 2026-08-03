@@ -180,6 +180,9 @@ class PyTorchStartupTemplateTests(unittest.TestCase):
             zone="europe-west4-a",
             torch_pip_spec="tpu-backend-pkg",
             torch_index="us-python.pkg.dev/test-registry/simple/",
+            wheels_gcs="gs://test-project-wheels",
+            torch_pip_extras="transformers",
+            env_exports="FOO=bar BAZ=qux",
         )
 
     def test_renders_without_leftover_placeholders(self):
@@ -190,13 +193,21 @@ class PyTorchStartupTemplateTests(unittest.TestCase):
         self.assertIn("tpu-backend-pkg", rendered)
         self.assertIn("us-python.pkg.dev/test-registry/simple/", rendered)
         self.assertIn("TPU environment ready.", rendered)
+        self.assertIn("FOO=bar", rendered)
 
     def test_smoke_test_follows_tpu_rules(self):
         """The embedded smoke test must use plain torch (never importing the backend
         or PyTorch/XLA) and compile with backend="tpu"."""
         rendered = self.render()
         smoke = rendered.split("<< 'PYEOF'")[1].split("PYEOF")[0]
-        self.assertNotIn("import tpu-backend-pkg", smoke)
+        # Plain torch only: the smoke test must import nothing but torch — importing
+        # the backend package directly (or PyTorch/XLA) is the failure this guards.
+        imports = {
+            line.split()[1].split(".")[0]
+            for line in smoke.splitlines()
+            if line.startswith(("import ", "from "))
+        }
+        self.assertEqual(imports, {"torch"}, f"unexpected imports in smoke test: {imports}")
         self.assertNotIn("torch_xla", smoke)
         self.assertIn('backend="tpu"', smoke)
         self.assertIn("bfloat16", smoke)

@@ -87,6 +87,11 @@ TPU_BACKEND_INDEX = os.getenv("TPU_BACKEND_INDEX", "")
 # Registry (no grantable IAM), but a bucket in our own project it can. Missing
 # bucket/objects fall through to the index. Empty disables the mirror.
 TPU_BACKEND_WHEELS_GCS = os.getenv("TPU_BACKEND_WHEELS_GCS", "")
+# Extra KEY=VALUE pairs (space/newline separated) the pytorch startup script
+# appends to /etc/environment, e.g. the backend's compile-cache variables.
+# Generic on purpose: the backend's own variable names are fixed by its
+# runtime and are supplied by the operator rather than committed here.
+TPU_BACKEND_ENV_EXPORTS = os.getenv("TPU_BACKEND_ENV_EXPORTS", "")
 # Public-PyPI extras installed after the TPU stack: the standard kit for the
 # QAT / custom-kernel work (compressed-tensors checkpoints, Pallas via jax,
 # chat templates need jinja2>=3.1). Best-effort at boot; failure is non-fatal.
@@ -287,6 +292,7 @@ def _get_pytorch_startup_script(zone: str) -> str:
             torch_index=TPU_BACKEND_INDEX,
             wheels_gcs=TPU_BACKEND_WHEELS_GCS,
             torch_pip_extras=TPU_BACKEND_PIP_EXTRAS,
+            env_exports=TPU_BACKEND_ENV_EXPORTS,
         )
     except Exception as e:
         raise RuntimeError(f"Cannot build startup script from {template_path}: {e}") from e
