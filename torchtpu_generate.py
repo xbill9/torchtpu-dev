@@ -83,7 +83,8 @@ def main() -> int:
     print(f"Loaded {model.num_parameters():,} params in {time.monotonic() - t0:.1f}s")
 
     if args.compile:
-        model.forward = torch.compile(model.forward, backend="tpu")
+        from torchtpu_compiler import compile_for_tpu
+        model.forward = compile_for_tpu(model.forward)
 
     messages = [{"role": "user", "content": args.prompt}]
     inputs = tokenizer.apply_chat_template(
