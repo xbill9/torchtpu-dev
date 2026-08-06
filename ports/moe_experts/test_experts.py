@@ -17,7 +17,7 @@ import sys
 
 import torch
 
-sys.path.insert(0, "/home/xbill/tpu-pytorch/ports/moe_experts")
+sys.path.insert(0, "/home/xbill/tpu-pytorch-v6e1/ports/moe_experts")
 from quant_experts import W4A16Experts, dequantize_expert_tensor, quantize_expert_tensor
 
 from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
