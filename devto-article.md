@@ -1,14 +1,14 @@
 ---
 title: "Teaching Claude Code to Wear the Pager: A TPU DevOps Skill Built on Google Cloud Flex-Start and MCP"
 published: false
-description: "How tpu-skill-claude packages Google Cloud TPU operations as a Claude Code skill + MCP server — zone-sweeping capacity hunts, one-tool-call vLLM deploys, Gemma-4-powered log triage, an idiot-proof install guide, and a teardown step it will nag you about."
+description: "How tpu-pytorch-v5e1-12b packages Google Cloud TPU operations as a Claude Code skill + MCP server — zone-sweeping capacity hunts, one-tool-call vLLM deploys, Gemma-4-powered log triage, an idiot-proof install guide, and a teardown step it will nag you about."
 tags: ai, claudecode, googlecloud, tpu
-cover_image: https://raw.githubusercontent.com/xbill9/tpu-skill-claude/main/devto-cover.jpg
+cover_image: https://raw.githubusercontent.com/xbill9/tpu-pytorch-v5e1-12b/main/devto-cover.jpg
 ---
 
 <!-- TODO before publishing: generate devto-cover.jpg and commit it, then fill in the real tool output in the Dogfooding section. -->
 
-> **TL;DR:** [tpu-skill-claude](https://github.com/xbill9/tpu-skill-claude) wraps Google Cloud TPU operations in a tiny FastMCP server and packages it as a Claude Code skill. You type "find me a v6e chip and stand up Gemma 4" into Claude Code, and it just... does it. It sweeps zones until one grants capacity, boots the VM with a startup script that installs Docker and launches vLLM, polls until the model answers, and hands you an OpenAI-compatible endpoint. Then you say "benchmark it" and "something looks wrong, check the logs" — and the log triage is done by the very Gemma 4 model the agent just deployed. When you're done, it tears everything down. Without leaving your terminal.
+> **TL;DR:** [tpu-pytorch-v5e1-12b](https://github.com/xbill9/tpu-pytorch-v5e1-12b) wraps Google Cloud TPU operations in a tiny FastMCP server and packages it as a Claude Code skill. You type "find me a v6e chip and stand up Gemma 4" into Claude Code, and it just... does it. It sweeps zones until one grants capacity, boots the VM with a startup script that installs Docker and launches vLLM, polls until the model answers, and hands you an OpenAI-compatible endpoint. Then you say "benchmark it" and "something looks wrong, check the logs" — and the log triage is done by the very Gemma 4 model the agent just deployed. When you're done, it tears everything down. Without leaving your terminal.
 
 ## Background: why another infra tool?
 
@@ -77,8 +77,8 @@ You need four things: **Python 3.10+**, **Claude Code**, an authenticated **`gcl
 Inside Claude Code, type:
 
 ```
-/plugin marketplace add xbill9/tpu-skill-claude
-/plugin install tpu-management@tpu-skill-claude
+/plugin marketplace add xbill9/tpu-pytorch-v5e1-12b
+/plugin install tpu-management@tpu-pytorch-v5e1-12b
 ```
 
 This installs the skill **and** auto-registers the MCP server. The plugin manifest carries no project id or credentials (as it should!) — the server reads `GOOGLE_CLOUD_PROJECT`, `MODEL_NAME`, `ACCELERATOR_TYPE`, and friends from your environment, falling back to your active gcloud config.
@@ -87,8 +87,8 @@ This installs the skill **and** auto-registers the MCP server. The plugin manife
 
 ```bash
 # 1. Get the code
-git clone https://github.com/xbill9/tpu-skill-claude.git
-cd tpu-skill-claude
+git clone https://github.com/xbill9/tpu-pytorch-v5e1-12b.git
+cd tpu-pytorch-v5e1-12b
 
 # 2. One-command setup: installs deps and registers the MCP server
 #    in .mcp.json with your GCP project id
@@ -115,7 +115,7 @@ This copies the skill into `<project>/.claude/skills/tpu-management/` and merges
 
 ```bash
 curl -L -o /tmp/tpu-management-skill.zip \
-  https://github.com/xbill9/tpu-skill-claude/raw/main/dist/tpu-management-skill.zip
+  https://github.com/xbill9/tpu-pytorch-v5e1-12b/raw/main/dist/tpu-management-skill.zip
 mkdir -p ~/.claude/skills && unzip -o /tmp/tpu-management-skill.zip -d ~/.claude/skills/
 ~/.claude/skills/tpu-management/mcp/project-setup.sh --global   # optional: register the MCP server
 ```
@@ -193,7 +193,7 @@ If the term is new to you: **"eating your own dog food"** means using your own p
 This repo dogfoods itself at every layer:
 
 - The **skill is active inside its own repository** — open Claude Code in a clone and the `tpu-management` skill and `tpu-devops` server are already wired up, so every development session doubles as an integration test.
-- The repo's companion deep-dive — *[Gemma 4 E2B on a Single TPU v6e Chip](https://github.com/xbill9/tpu-skill-claude/blob/main/devto-post.md)* — was **produced with this agent**: the concurrency sweep ran through `run_vllm_benchmark save_result=True`, the boot timeline came off `get_tpu_vm_serial_log`, and the cost table started from `estimate_deployment_cost`. The pipeline promoted in this article is the pipeline that produced its own field data.
+- The repo's companion deep-dive — *[Gemma 4 E2B on a Single TPU v6e Chip](https://github.com/xbill9/tpu-pytorch-v5e1-12b/blob/main/devto-post.md)* — was **produced with this agent**: the concurrency sweep ran through `run_vllm_benchmark save_result=True`, the boot timeline came off `get_tpu_vm_serial_log`, and the cost table started from `estimate_deployment_cost`. The pipeline promoted in this article is the pipeline that produced its own field data.
 - **The field notes flowed back into the skill.** The boot-disk trap, the IAP workaround, the QAT checkpoints that won't load (filed upstream as [tpu-inference #3225](https://github.com/vllm-project/tpu-inference/issues/3225)) — every one was hit for real during dogfooding, then encoded into `SKILL.md` so Claude sidesteps it next time.
 
 <!-- TODO: run a fresh find → serve → benchmark → destroy flow and paste the real tool calls + output here. -->
@@ -202,7 +202,7 @@ Dogfooding is the cheapest credibility there is: no cherry-picked gallery, no "r
 
 ## Links
 
-- **Repo:** [github.com/xbill9/tpu-skill-claude](https://github.com/xbill9/tpu-skill-claude)
+- **Repo:** [github.com/xbill9/tpu-pytorch-v5e1-12b](https://github.com/xbill9/tpu-pytorch-v5e1-12b)
 - **Flex-start (DWS) pricing:** [cloud.google.com/products/dws/pricing](https://cloud.google.com/products/dws/pricing)
 - **vLLM on TPU docs:** [docs.vllm.ai/projects/tpu](https://docs.vllm.ai/projects/tpu/en/latest/)
 - **Model Context Protocol:** [modelcontextprotocol.io](https://modelcontextprotocol.io)

@@ -14,7 +14,7 @@ MAX_SEQ leaves results unchanged (cache padding correctly masked), and that
 torch.compile(model.decode_step, backend="aot_eager", fullgraph=True) traces
 the decode step without graph breaks.
 
-Run:  cd /home/xbill/tpu-pytorch-v6e1/ports/gemma4 && python3 decode_test.py
+Run:  cd /home/xbill/tpu-pytorch-v5e1-12b/ports/gemma4 && python3 decode_test.py
 """
 
 import sys

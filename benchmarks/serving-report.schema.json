@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/xbill9/tpu-skill-claude/main/benchmarks/serving-report.schema.json",
+  "$id": "https://raw.githubusercontent.com/xbill9/tpu-pytorch-v5e1-12b/main/benchmarks/serving-report.schema.json",
   "title": "LLM Serving Benchmark Report",
   "description": "One report per (model, hardware, engine config) deployment: identity of the stack, throughput sweep, capability probes, memory anatomy, startup, and cost. Unknown extra fields are allowed everywhere so the schema can evolve without breaking old reports.",
   "type": "object",

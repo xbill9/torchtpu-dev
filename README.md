@@ -1,8 +1,8 @@
-# 🚀 tpu-skill-claude — TPU Management Skill & MCP Agent
+# 🚀 tpu-pytorch-v5e1-12b — TPU Management Skill & MCP Agent
 
 This repository packages the **`tpu-management` Claude Code skill** and the **`tpu-devops` MCP server**: an AI DevOps/SRE agent for operating Google Cloud TPU capacity and **Gemma 4** vLLM serving on TPU VMs. It finds and provisions TPU capacity (flex-start VMs, queued resources), starts and debugs vLLM, verifies model health, runs benchmarks, analyzes logs with the self-hosted Gemma 4 model, and tears everything down safely.
 
-**GitHub:** https://github.com/xbill9/tpu-skill-claude
+**GitHub:** https://github.com/xbill9/tpu-pytorch-v5e1-12b
 
 ---
 
@@ -43,8 +43,8 @@ Pick the install path that fits:
 **Option A — Claude Code plugin marketplace (recommended):**
 
 ```
-/plugin marketplace add xbill9/tpu-skill-claude
-/plugin install tpu-management@tpu-skill-claude
+/plugin marketplace add xbill9/tpu-pytorch-v5e1-12b
+/plugin install tpu-management@tpu-pytorch-v5e1-12b
 ```
 
 This installs the `tpu-management` skill **and** registers the `tpu-devops` MCP server in one step, with updates managed by Claude Code (`/plugin` → manage/update). Configure the server through environment variables (e.g. `GOOGLE_CLOUD_PROJECT`, `MODEL_NAME`, `ACCELERATOR_TYPE`) — see `SKILL.md` or the `get_help` tool for the full list.
@@ -52,8 +52,8 @@ This installs the `tpu-management` skill **and** registers the `tpu-devops` MCP 
 **Option B — clone and install** (all projects on this machine):
 
 ```bash
-git clone https://github.com/xbill9/tpu-skill-claude
-cd tpu-skill-claude
+git clone https://github.com/xbill9/tpu-pytorch-v5e1-12b
+cd tpu-pytorch-v5e1-12b
 make skill-install                                   # skill only
 ./project-setup.sh --global                          # skill + user-scope tpu-devops MCP server
 ```
@@ -62,7 +62,7 @@ make skill-install                                   # skill only
 
 ```bash
 curl -L -o /tmp/tpu-management-skill.zip \
-  https://github.com/xbill9/tpu-skill-claude/raw/main/dist/tpu-management-skill.zip
+  https://github.com/xbill9/tpu-pytorch-v5e1-12b/raw/main/dist/tpu-management-skill.zip
 mkdir -p ~/.claude/skills && unzip -o /tmp/tpu-management-skill.zip -d ~/.claude/skills/
 ~/.claude/skills/tpu-management/mcp/project-setup.sh --global   # optional: register the MCP server
 ```

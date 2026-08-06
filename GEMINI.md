@@ -1,6 +1,6 @@
 # 🤖 Gemini Workspace Context: TPU Management Skill & tpu-devops MCP Agent
 
-This workspace context file helps **Gemini Code Assistant** (and other developer tools) quickly understand the layout, goals, and integration methods of the **tpu-skill-claude** project.
+This workspace context file helps **Gemini Code Assistant** (and other developer tools) quickly understand the layout, goals, and integration methods of the **tpu-pytorch-v5e1-12b** project.
 
 ---
 

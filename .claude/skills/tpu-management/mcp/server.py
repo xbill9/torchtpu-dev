@@ -68,6 +68,23 @@ MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-31B-it")
 HF_SECRET_ID = "hf-token"
 ACCELERATOR_TYPE = os.getenv("ACCELERATOR_TYPE", "v6e-8")
 TENSOR_PARALLEL_SIZE = int(os.getenv("TENSOR_PARALLEL_SIZE", "8"))
+# Queued-resource runtime image, which is per TPU family — a v6e image will not
+# boot a v5e node. Derived from ACCELERATOR_TYPE unless overridden.
+_QR_RUNTIME_VERSIONS = {"v6e": "v2-alpha-tpuv6e", "v5e": "v2-alpha-tpuv5-lite", "v5p": "v2-alpha-tpuv5"}
+
+
+def _qr_runtime_version(accelerator: str = "") -> str:
+    """Runtime image for a queued resource of this accelerator family. gcloud spells
+    v5e as v5litepod, so both spellings are accepted."""
+    override = os.getenv("TPU_RUNTIME_VERSION")
+    if override:
+        return override
+    family = (accelerator or ACCELERATOR_TYPE).lower()
+    if family.startswith("v5litepod"):
+        family = "v5e"
+    return _QR_RUNTIME_VERSIONS.get(family.split("-")[0], "v2-alpha-tpuv6e")
+
+
 # Packages the pytorch-workload startup script installs, per the PyTorch TPU backend
 # PyTorch TPU backend install config. Deliberately has NO defaults: the backend
 # packages and their index are not publicly distributable, so the package name,
@@ -75,11 +92,14 @@ TENSOR_PARALLEL_SIZE = int(os.getenv("TENSOR_PARALLEL_SIZE", "8"))
 # at deploy time and never committed here. `workload="pytorch"` aborts with an
 # explicit message when TPU_BACKEND_PIP_SPEC / TPU_BACKEND_INDEX are unset.
 #
-# Pin the CPU torch build in TPU_BACKEND_PIP_SPEC (e.g. "<pkg> torch==2.11.0+cpu"):
+# Pin the CPU torch build in TPU_BACKEND_PIP_SPEC (e.g. "<pkg> torch==2.13.0+cpu"):
 # the nightly backend wheels leave their torch dependency unconstrained, so pip
-# otherwise resolves a newer torch whose ABI the extension .so was not built
-# against (verified failure on 2.13). Never add plain `torch` on its own — the
-# backend index pulls the matching CPU build automatically.
+# otherwise resolves whatever torch is newest. The pin still matters, but the
+# ABI window is no longer a single version — wheels from 0.1.1.dev2026-08-05 on
+# ship parallel extension .so sets for torch 2.11 through 2.14 and select at
+# import, so any of those works (2.13.0+cpu verified on v5e-1, 2026-08-05).
+# Never add plain `torch` on its own — the backend index pulls the matching CPU
+# build automatically.
 TPU_BACKEND_PIP_SPEC = os.getenv("TPU_BACKEND_PIP_SPEC", "")
 TPU_BACKEND_INDEX = os.getenv("TPU_BACKEND_INDEX", "")
 # Project-owned GCS mirror of the backend wheels. The startup script tries this
@@ -544,7 +564,7 @@ async def _create_queued_resource(
         "create",
         resource_id,
         f"--zone={zone}",
-        "--runtime-version=v2-alpha-tpuv6e",
+        f"--runtime-version={_qr_runtime_version()}",
         f"--node-id={resource_id}-node",
         f"--project={PROJECT_ID}",
         f"--accelerator-type={ACCELERATOR_TYPE}",
@@ -677,12 +697,18 @@ _GCE_MACHINE_TYPES = {
     "v6e-4": ("ct6e-standard-4t", 4),
     "v6e-8": ("ct6e-standard-8t", 8),
     "v5p-8": ("ct5p-hightpu-4t", 4),
+    # v5e is v5litepod to the TPU API but ct5lp to GCE. The single-chip shape is
+    # the narrowest one: flex-start for it has only ever been granted in
+    # us-west4-a, and the queued-resources API is the more reliable path there.
+    "v5e-1": ("ct5lp-hightpu-1t", 1),
+    "v5e-4": ("ct5lp-hightpu-4t", 4),
+    "v5e-8": ("ct5lp-hightpu-8t", 8),
 }
 _GCE_IMAGE_FLAGS = [
     "--image-project=ubuntu-os-accelerator-images",
     "--image-family=ubuntu-accel-2204-amd64-tpu-v5e-v5p-v6e",
 ]
-_GCE_TPU_FILTER = "machineType~'ct6e|ct5p'"
+_GCE_TPU_FILTER = "machineType~'ct6e|ct5p|ct5lp'"
 
 
 def _min_chips_for_model(model: str) -> int:
@@ -703,7 +729,7 @@ def _min_chips_for_model(model: str) -> int:
 async def create_tpu_vm_instance(
     instance_name: Optional[str] = None,
     zone: Optional[str] = None,
-    accelerator: Annotated[str, Field(description="TPU type: v6e-1, v6e-4, v6e-8, or v5p-8")] = ACCELERATOR_TYPE,
+    accelerator: Annotated[str, Field(description="TPU type: v6e-1/4/8, v5e-1/4/8, or v5p-8")] = ACCELERATOR_TYPE,
     model_name: Optional[str] = None,
     boot_disk_size_gb: int = 200,
     max_run_duration: str = "4h",
@@ -1297,7 +1323,7 @@ async def find_tpu(
 @mcp.tool(title="Find flex-start TPU VM capacity", annotations=WRITE)
 async def find_tpu_vm(
     instance_name: Optional[str] = None,
-    accelerator: Annotated[str, Field(description="TPU type: v6e-1, v6e-4, v6e-8, or v5p-8")] = ACCELERATOR_TYPE,
+    accelerator: Annotated[str, Field(description="TPU type: v6e-1/4/8, v5e-1/4/8, or v5p-8")] = ACCELERATOR_TYPE,
     zones: Annotated[
         Optional[list[str]],
         Field(description="Zones to try in order; defaults to the zones with TPU quota"),

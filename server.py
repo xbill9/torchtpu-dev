@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import math
@@ -23,7 +24,7 @@ from pydantic import Field
 logging.basicConfig(
     stream=sys.stderr, level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("vllm-devops-agent")
+logger = logging.getLogger("tpu-devops-agent")
 
 # Initialize FastMCP server. The name stays generic — model and topology come
 # from env vars, so they don't belong in the server identity.
@@ -36,6 +37,31 @@ WRITE = ToolAnnotations(destructiveHint=False)
 DESTRUCTIVE = ToolAnnotations(destructiveHint=True)
 
 # --- Configuration ---
+
+
+def _load_rig_env() -> None:
+    """Seed os.environ from tpu.env, the rig's single source of truth.
+
+    Deliberately hand-rolled rather than python-dotenv: the repo standard is to
+    stay on the standard library, and the file is a flat KEY=VALUE list. A
+    variable already present in the environment always wins, so mcp-run.sh, a
+    shell export, and an `env` block in .mcp.json all still override the file.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tpu.env")
+    try:
+        with open(path, "r") as f:
+            lines = f.readlines()
+    except OSError:
+        return  # No tpu.env (e.g. the skill snapshot) — env vars are the only source.
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_rig_env()
 
 
 def _resolve_project_id() -> str:
@@ -62,12 +88,62 @@ if not PROJECT_ID:
         "No GCP project configured: set GOOGLE_CLOUD_PROJECT or run "
         "`gcloud config set project <id>`. All gcloud-backed tools will fail until then."
     )
-ZONE = os.getenv("GOOGLE_CLOUD_ZONE", "europe-west4-a")
-REGION = os.getenv("GOOGLE_CLOUD_REGION", "europe-west4")
-MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-31B-it")
+ZONE = os.getenv("GOOGLE_CLOUD_ZONE", "us-west4-a")
+REGION = os.getenv("GOOGLE_CLOUD_REGION", "us-west4")
+# QAT w4a16 by default: bf16 12B is ~24GB of weights and does not fit the 16GB
+# HBM of a single v5e chip; the compressed-tensors checkpoint is ~7GB and does.
+MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-12B-it-qat-w4a16-ct")
 HF_SECRET_ID = "hf-token"
-ACCELERATOR_TYPE = os.getenv("ACCELERATOR_TYPE", "v6e-8")
-TENSOR_PARALLEL_SIZE = int(os.getenv("TENSOR_PARALLEL_SIZE", "8"))
+ACCELERATOR_TYPE = os.getenv("ACCELERATOR_TYPE", "v5e-1")
+TENSOR_PARALLEL_SIZE = int(os.getenv("TENSOR_PARALLEL_SIZE", "1"))
+# tpu_openai_server.py serving parameters (see the SERVE_SEQ note in tpu.env).
+SERVE_PORT = int(os.getenv("SERVE_PORT", "8000"))
+SERVE_SEQ = int(os.getenv("SERVE_SEQ", "1024"))
+# Default resource names. Both paths get a name; which one this rig uses depends
+# on whether flex-start grants a GCE instance or a queued resource that day.
+VM_NAME = os.getenv("TPU_VM_NAME", "gemma4-tpu-vm")
+QR_NAME = os.getenv("TPU_QR_NAME", "gemma4-tpu-qr")
+# Quota metric the zone sweeps filter on. Per TPU family — the v6e id finds no
+# v5e capacity at all, which reads as "no quota anywhere" rather than as a
+# mismatch, so it must track ACCELERATOR_TYPE.
+_QUOTA_IDS = {
+    "v5e": "TPUV5sLitepodPerProjectPerZoneForTPUAPI",
+    "v5litepod": "TPUV5sLitepodPerProjectPerZoneForTPUAPI",
+    "v6e": "TPUV6EPerProjectPerZoneForTPUAPI",
+    "v5p": "TPUV5PPerProjectPerZoneForTPUAPI",
+}
+TPU_QUOTA_ID = os.getenv(
+    "TPU_QUOTA_ID",
+    _QUOTA_IDS.get(ACCELERATOR_TYPE.lower().split("-")[0], "TPUV5sLitepodPerProjectPerZoneForTPUAPI"),
+)
+# Queued-resource runtime image, which is per TPU family — a v6e image will not
+# boot a v5e node. Derived from ACCELERATOR_TYPE unless overridden.
+_QR_RUNTIME_VERSIONS = {"v6e": "v2-alpha-tpuv6e", "v5e": "v2-alpha-tpuv5-lite", "v5p": "v2-alpha-tpuv5"}
+
+
+def _qr_runtime_version(accelerator: str = "") -> str:
+    """Runtime image for a queued resource of this accelerator family. gcloud spells
+    v5e as v5litepod, so both spellings are accepted."""
+    override = os.getenv("TPU_RUNTIME_VERSION")
+    if override:
+        return override
+    family = (accelerator or ACCELERATOR_TYPE).lower()
+    if family.startswith("v5litepod"):
+        family = "v5e"
+    return _QR_RUNTIME_VERSIONS.get(family.split("-")[0], "v2-alpha-tpuv6e")
+
+
+def _qr_accelerator_type(accelerator: str = "") -> str:
+    """The spelling the queued-resources API wants. Everything user-facing says
+    "v5e-1" (that is what the hardware is called), but gcloud only accepts
+    `v5litepod-1` there — so the translation happens here rather than forcing the
+    v5litepod spelling into the config, where the GCE path would then reject it."""
+    accel = (accelerator or ACCELERATOR_TYPE).lower()
+    if accel.startswith("v5e-"):
+        return accel.replace("v5e-", "v5litepod-", 1)
+    return accel
+
+
 # Packages the pytorch-workload startup script installs, per the PyTorch TPU backend
 # PyTorch TPU backend install config. Deliberately has NO defaults: the backend
 # packages and their index are not publicly distributable, so the package name,
@@ -75,11 +151,14 @@ TENSOR_PARALLEL_SIZE = int(os.getenv("TENSOR_PARALLEL_SIZE", "8"))
 # at deploy time and never committed here. `workload="pytorch"` aborts with an
 # explicit message when TPU_BACKEND_PIP_SPEC / TPU_BACKEND_INDEX are unset.
 #
-# Pin the CPU torch build in TPU_BACKEND_PIP_SPEC (e.g. "<pkg> torch==2.11.0+cpu"):
+# Pin the CPU torch build in TPU_BACKEND_PIP_SPEC (e.g. "<pkg> torch==2.13.0+cpu"):
 # the nightly backend wheels leave their torch dependency unconstrained, so pip
-# otherwise resolves a newer torch whose ABI the extension .so was not built
-# against (verified failure on 2.13). Never add plain `torch` on its own — the
-# backend index pulls the matching CPU build automatically.
+# otherwise resolves whatever torch is newest. The pin still matters, but the
+# ABI window is no longer a single version — wheels from 0.1.1.dev2026-08-05 on
+# ship parallel extension .so sets for torch 2.11 through 2.14 and select at
+# import, so any of those works (2.13.0+cpu verified on v5e-1, 2026-08-05).
+# Never add plain `torch` on its own — the backend index pulls the matching CPU
+# build automatically.
 TPU_BACKEND_PIP_SPEC = os.getenv("TPU_BACKEND_PIP_SPEC", "")
 TPU_BACKEND_INDEX = os.getenv("TPU_BACKEND_INDEX", "")
 # Project-owned GCS mirror of the backend wheels. The startup script tries this
@@ -94,11 +173,12 @@ TPU_BACKEND_WHEELS_GCS = os.getenv("TPU_BACKEND_WHEELS_GCS", "")
 TPU_BACKEND_ENV_EXPORTS = os.getenv("TPU_BACKEND_ENV_EXPORTS", "")
 # Public-PyPI extras installed after the TPU stack: the standard kit for the
 # QAT / custom-kernel work (compressed-tensors checkpoints, Pallas via jax,
-# chat templates need jinja2>=3.1). Best-effort at boot; failure is non-fatal.
+# chat templates need jinja2>=3.1) plus fastapi/uvicorn, which
+# tpu_openai_server.py imports. Best-effort at boot; failure is non-fatal.
 TPU_BACKEND_PIP_EXTRAS = os.getenv(
     "TPU_BACKEND_PIP_EXTRAS",
     # setuptools<81: tensorboard/xprof need pkg_resources (removed in 81).
-    "transformers compressed-tensors 'jinja2>=3.1' jax "
+    "transformers compressed-tensors 'jinja2>=3.1' jax fastapi uvicorn "
     "'setuptools<81' xprof tensorboard-plugin-profile",
 )
 
@@ -233,35 +313,44 @@ async def get_secret(secret_id: str = HF_SECRET_ID) -> Optional[str]:
         return None
 
 
-def _get_formatted_startup_script(model_name: str, zone: str, tp_size: Optional[int] = None) -> str:
-    """Formats the startup script template. The Hugging Face token is NOT interpolated —
-    the template fetches it from Secret Manager at boot, so it never lands in instance
-    metadata (readable by anyone with compute.instances.get) or on local disk.
+def _serving_script_payload() -> str:
+    """tpu_openai_server.py, base64-encoded for embedding in the startup script.
 
-    Raises RuntimeError if the template is missing or malformed; callers must not
-    create infrastructure with a broken startup script.
+    The serving script lives in this repo, not on the VM image, and TPU VMs
+    routinely have SSH blocked by firewall policy — so it cannot be scp'd after
+    boot. Shipping it inside instance metadata is the one delivery channel that
+    always works. base64 also sidesteps the template's str.format() pass, which
+    would otherwise choke on every brace in the Python source.
+
+    Looked up next to this file first (repo root) and then one directory up, so
+    the skill snapshot in mcp/ finds the copy the installer places beside it.
     """
-    template_path = os.path.join(os.path.dirname(__file__), "startup_script_template.sh")
-    try:
-        with open(template_path, "r") as f:
-            template = f.read()
-        return template.format(
-            project_id=PROJECT_ID,
-            zone=zone,
-            model_name=model_name,
-            hf_secret_id=HF_SECRET_ID,
-            tp_size=tp_size if tp_size is not None else TENSOR_PARALLEL_SIZE,
-            limit_mm_per_prompt_env='export VLLM_LIMIT_MM_PER_PROMPT=\'{"image":4,"audio":1}\'',
-        )
-    except Exception as e:
-        raise RuntimeError(f"Cannot build startup script from {template_path}: {e}") from e
+    here = os.path.dirname(os.path.abspath(__file__))
+    for candidate in (
+        os.path.join(here, "tpu_openai_server.py"),
+        os.path.join(os.path.dirname(here), "tpu_openai_server.py"),
+    ):
+        if os.path.exists(candidate):
+            with open(candidate, "rb") as f:
+                return base64.b64encode(f.read()).decode()
+    raise RuntimeError(
+        "tpu_openai_server.py not found next to server.py — it is the serving stack "
+        "the startup script installs on the VM and cannot be omitted."
+    )
 
 
-def _get_pytorch_startup_script(zone: str) -> str:
-    """Formats the PyTorch (the PyTorch TPU backend) startup script template: installs the torch
-    TPU stack (a dedicated python3.12 interpreter — no venv — with the backend from
-    its authenticated Artifact Registry index) on the bare VM and runs a compile
-    smoke test — no docker, no vLLM, and no Hugging Face token required.
+def _get_pytorch_startup_script(
+    zone: str,
+    model_name: Optional[str] = None,
+    serve: bool = True,
+    seq: Optional[int] = None,
+    port: Optional[int] = None,
+) -> str:
+    """Formats the PyTorch TPU startup script template: installs the torch TPU stack
+    (a dedicated python3.12 interpreter — no venv — with the backend from its
+    authenticated Artifact Registry index) on the bare VM, runs a compile smoke
+    test, and — unless serve=False — installs tpu_openai_server.py as a systemd
+    unit serving `model_name` on `port`. No docker and no vLLM anywhere.
 
     Raises RuntimeError if the template is missing or malformed; callers must not
     create infrastructure with a broken startup script.
@@ -293,6 +382,11 @@ def _get_pytorch_startup_script(zone: str) -> str:
             wheels_gcs=TPU_BACKEND_WHEELS_GCS,
             torch_pip_extras=TPU_BACKEND_PIP_EXTRAS,
             env_exports=TPU_BACKEND_ENV_EXPORTS,
+            serve="1" if serve else "",
+            model_name=model_name or MODEL_NAME,
+            serve_port=port if port is not None else SERVE_PORT,
+            serve_seq=seq if seq is not None else SERVE_SEQ,
+            server_py_b64=_serving_script_payload() if serve else "",
         )
     except Exception as e:
         raise RuntimeError(f"Cannot build startup script from {template_path}: {e}") from e
@@ -307,8 +401,12 @@ def _write_startup_script(content: str) -> str:
     return path
 
 
-async def discover_vllm_url() -> Optional[str]:
-    """Finds the URL of an ACTIVE Queued Resource vLLM service."""
+async def discover_serving_url() -> Optional[str]:
+    """Finds the URL of the live TPU serving endpoint (tpu_openai_server.py).
+
+    Checks ACTIVE queued resources in the configured zone first, then RUNNING GCE
+    flex-start TPU VMs. Always prefer this over a remembered address: flex-start
+    capacity moves zones and IPs between runs."""
     list_cmd = [
         "gcloud",
         "alpha",
@@ -333,7 +431,7 @@ async def discover_vllm_url() -> Optional[str]:
                 if node_id:
                     ip = await _get_node_ip(node_id)
                     if ip:
-                        url = f"http://{ip}:8000"
+                        url = f"http://{ip}:{SERVE_PORT}"
                         logger.info(f"📡 Found ACTIVE Queued Resource {resource_id} at {url}")
                         return url
     except Exception as e:
@@ -356,15 +454,15 @@ async def discover_vllm_url() -> Optional[str]:
             name = parts[0] if parts else "?"
             for ip in parts[1:]:
                 if ip:
-                    url = f"http://{ip}:8000"
+                    url = f"http://{ip}:{SERVE_PORT}"
                     logger.info(f"📡 Found RUNNING GCE TPU VM {name} at {url}")
                     return url
     return None
 
 
 async def _get_served_model_id(url: str) -> Optional[str]:
-    """The model id vLLM actually loaded — the only id it answers to. Deploy-time
-    model_name overrides mean this can differ from the configured MODEL_NAME."""
+    """The model id the server actually loaded — the only id it answers to.
+    Deploy-time model_name overrides mean this can differ from MODEL_NAME."""
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             res = await client.get(f"{url}/v1/models")
@@ -377,12 +475,13 @@ async def _get_served_model_id(url: str) -> Optional[str]:
     return None
 
 
-async def get_vllm_client() -> tuple[AsyncOpenAI, str]:
-    """Returns an AsyncOpenAI client for the vLLM service plus the model id it is
-    actually serving (falling back to MODEL_NAME if /v1/models is unreachable)."""
-    url = await discover_vllm_url()
+async def get_serving_client() -> tuple[AsyncOpenAI, str]:
+    """Returns an AsyncOpenAI client for the TPU serving endpoint plus the model id
+    it is actually serving (falling back to MODEL_NAME if /v1/models is
+    unreachable)."""
+    url = await discover_serving_url()
     if not url:
-        raise Exception(f"No active vLLM service found (zone {ZONE}).")
+        raise Exception(f"No reachable TPU serving endpoint found (zone {ZONE}).")
     model_id = await _get_served_model_id(url) or MODEL_NAME
     return AsyncOpenAI(base_url=f"{url}/v1", api_key="not-needed"), model_id
 
@@ -391,7 +490,7 @@ async def get_vllm_client() -> tuple[AsyncOpenAI, str]:
 async def verify_model_health() -> str:
     """Runs a deep logic check with latency reporting."""
     try:
-        client, model_id = await get_vllm_client()
+        client, model_id = await get_serving_client()
         start_time = time.monotonic()
         chat_completion = await client.chat.completions.create(
             messages=[{"role": "user", "content": "Hello, is the model working?"}],
@@ -449,33 +548,37 @@ async def save_hf_token(token: str) -> str:
 
 
 @mcp.tool(title="Generate TPU VM deployment command", annotations=READ_ONLY)
-async def get_vllm_deployment_config(service_name: str = "vllm-gemma4-qr", model_name: str = MODEL_NAME) -> str:
-    """Generates the gcloud command for a single-host TPU v6e vLLM deployment.
-
-    The startup script fetches the Hugging Face token from Secret Manager on the VM
-    at boot, so the secret never appears in this output or in instance metadata.
-    """
-    startup_script = (
-        "#!/bin/bash\n"
-        f"HF_TOKEN=$(gcloud secrets versions access latest --secret={HF_SECRET_ID} --project={PROJECT_ID})\n"
-        "docker run -t --rm --name vllm-gemma4 --privileged --net=host \\\n"
-        "  -v /dev/shm:/dev/shm --shm-size 10gb \\\n"
-        '  -e HF_TOKEN="$HF_TOKEN" \\\n'
-        f"  vllm/vllm-tpu:nightly vllm serve {model_name} \\\n"
-        f"  --max-model-len 16384 --tensor-parallel-size {TENSOR_PARALLEL_SIZE} --disable_chunked_mm_input"
-    )
+async def get_deployment_config(
+    instance_name: str = "tpu-vm",
+    model_name: str = MODEL_NAME,
+    zone: Optional[str] = None,
+) -> str:
+    """Prints the gcloud command `create_tpu_vm_instance` runs, for pasting into a
+    shell or a runbook. The startup script is written to a temp file rather than
+    inlined here — it is ~20KB once tpu_openai_server.py is embedded — so this is
+    the flag set, not a copy-paste-complete one-liner."""
+    zone = _zone(zone)
+    machine_type, chips = _GCE_MACHINE_TYPES.get(ACCELERATOR_TYPE, ("(unknown)", 0))
     cmd = (
-        f"gcloud alpha compute tpus tpu-vm create {service_name} \\\n"
-        f"  --accelerator-type={ACCELERATOR_TYPE} \\\n"
-        f"  --version=v2-alpha-tpuv6e \\\n"
-        f"  --zone={ZONE} \\\n"
+        f"gcloud compute instances create {instance_name} \\\n"
         f"  --project={PROJECT_ID} \\\n"
-        f"  --metadata=startup-script='{startup_script}'"
+        f"  --zone={zone} \\\n"
+        f"  --machine-type={machine_type} \\\n"
+        f"  --provisioning-model=FLEX_START \\\n"
+        f"  --max-run-duration=4h \\\n"
+        f"  --instance-termination-action=DELETE \\\n"
+        f"  {' '.join(_GCE_IMAGE_FLAGS)} \\\n"
+        f"  --maintenance-policy=TERMINATE \\\n"
+        f"  --boot-disk-size=200GB \\\n"
+        f"  --scopes=cloud-platform \\\n"
+        f"  --metadata-from-file=startup-script=<rendered startup_script_pytorch_template.sh>"
     )
     return (
         f"```bash\n{cmd}\n```\n"
-        f"Requires the `{HF_SECRET_ID}` secret (save one with `save_hf_token`) and "
-        "`roles/secretmanager.secretAccessor` on the VM's service account."
+        f"Serves `{model_name}` on port {SERVE_PORT} ({ACCELERATOR_TYPE}, {chips} chip(s), "
+        f"SEQ={SERVE_SEQ}). Gated checkpoints need the `{HF_SECRET_ID}` secret "
+        f"(save one with `save_hf_token`) plus `roles/secretmanager.secretAccessor` "
+        "on the VM's service account."
     )
 
 
@@ -511,9 +614,10 @@ async def _create_queued_resource(
     zone: str,
     reserved: bool,
     model_name: Optional[str],
+    serve: bool = True,
 ) -> str:
-    """Creates a single Queued Resource with the vLLM startup script. Non-destructive:
-    never touches other resources."""
+    """Creates a single Queued Resource running the PyTorch TPU startup script.
+    Non-destructive: never touches other resources."""
     selected_model = model_name or MODEL_NAME
     try:
         accel_chips = int(ACCELERATOR_TYPE.rsplit("-", 1)[-1])
@@ -523,14 +627,11 @@ async def _create_queued_resource(
     if accel_chips is not None and accel_chips < min_chips:
         return (
             f"❌ `{selected_model}` needs ~{min_chips} chips but `{ACCELERATOR_TYPE}` has {accel_chips} — "
-            "it would OOM after a long load. Pick a larger accelerator or a smaller model."
+            "it would OOM after a long load. Pick a larger accelerator or a quantized checkpoint."
         )
 
-    token = await get_secret()
-    if not token:
-        return "❌ Aborted: 'hf-token' secret missing. Save one with `save_hf_token` first."
     try:
-        startup_script_content = _get_formatted_startup_script(selected_model, zone)
+        startup_script_content = _get_pytorch_startup_script(zone, model_name=selected_model, serve=serve)
     except RuntimeError as e:
         return f"❌ Aborted: {e}"
     script_file = _write_startup_script(startup_script_content)
@@ -544,10 +645,10 @@ async def _create_queued_resource(
         "create",
         resource_id,
         f"--zone={zone}",
-        "--runtime-version=v2-alpha-tpuv6e",
+        f"--runtime-version={_qr_runtime_version()}",
         f"--node-id={resource_id}-node",
         f"--project={PROJECT_ID}",
-        f"--accelerator-type={ACCELERATOR_TYPE}",
+        f"--accelerator-type={_qr_accelerator_type()}",
         f"--metadata-from-file=startup-script={script_file}",
     ]
     if reserved:
@@ -571,15 +672,17 @@ async def _create_queued_resource(
 
     if rc != 0:
         return f"❌ Creation failed: {err}"
-    return f"🚀 Queued Resource {resource_id} creation initiated in {zone} with startup script."
+    what = f"serving `{selected_model}`" if serve else "as a bare PyTorch TPU node"
+    return f"🚀 Queued Resource {resource_id} creation initiated in {zone}, {what}."
 
 
 @mcp.tool(title="Manage primary queued resource (deletes others)", annotations=DESTRUCTIVE)
 async def manage_queued_resource(
-    resource_id: str = "vllm-gemma4-qr",
+    resource_id: str = QR_NAME,
     zone: Optional[str] = None,
     reserved: bool = False,
     model_name: Optional[str] = None,
+    serve: Annotated[bool, Field(description="Install and start tpu_openai_server.py; False leaves a bare torch node")] = True,
 ) -> str:
     """Ensures the primary Queued Resource exists — and DELETES every other queued
     resource in the zone (plus the primary itself if FAILED/SUSPENDED, so it can be
@@ -627,7 +730,7 @@ async def manage_queued_resource(
             redundant_deleted.append(name)
 
     if not primary_res:
-        result = await _create_queued_resource(resource_id, zone, reserved, model_name)
+        result = await _create_queued_resource(resource_id, zone, reserved, model_name, serve=serve)
         return f"{result} Cleaned up: {redundant_deleted}"
 
     state = primary_res.get("state", {}).get("state", "UNKNOWN")
@@ -636,14 +739,15 @@ async def manage_queued_resource(
 
 @mcp.tool(title="Create queued resource", annotations=WRITE)
 async def create_tpu_queued_resource(
-    resource_id: str = "vllm-gemma4-qr",
+    resource_id: str = QR_NAME,
     zone: Optional[str] = None,
     reserved: bool = False,
     model_name: Optional[str] = None,
+    serve: Annotated[bool, Field(description="Install and start tpu_openai_server.py; False leaves a bare torch node")] = True,
 ) -> str:
-    """Creates a TPU Queued Resource (Flex-start or reserved) with the vLLM startup
-    script. Non-destructive: unlike `manage_queued_resource`, it never deletes other
-    resources — if one with this ID already exists it just reports its state."""
+    """Creates a TPU Queued Resource (Flex-start or reserved) running the PyTorch TPU
+    startup script. Non-destructive: unlike `manage_queued_resource`, it never deletes
+    other resources — if one with this ID already exists it just reports its state."""
     zone = _zone(zone)
     describe_cmd = [
         "gcloud",
@@ -663,7 +767,7 @@ async def create_tpu_queued_resource(
             f"✅ Queued Resource {resource_id} already exists in {zone} (state: {state.strip()}). "
             "Delete it first with `destroy_queued_resource` to recreate."
         )
-    return await _create_queued_resource(resource_id, zone, reserved, model_name)
+    return await _create_queued_resource(resource_id, zone, reserved, model_name, serve=serve)
 
 
 # --- GCE flex-start TPU VM instances (recommended path for v6e / v5p) ---------------
@@ -677,77 +781,84 @@ _GCE_MACHINE_TYPES = {
     "v6e-4": ("ct6e-standard-4t", 4),
     "v6e-8": ("ct6e-standard-8t", 8),
     "v5p-8": ("ct5p-hightpu-4t", 4),
+    # v5e is v5litepod to the TPU API but ct5lp to GCE. The single-chip shape is
+    # this rig's target: flex-start for it has only ever been granted in
+    # us-west4-a, and the queued-resources API is the more reliable path there.
+    "v5e-1": ("ct5lp-hightpu-1t", 1),
+    "v5e-4": ("ct5lp-hightpu-4t", 4),
+    "v5e-8": ("ct5lp-hightpu-8t", 8),
+    # The v5litepod spelling is what the queued-resources API uses; accept it here
+    # too so one ACCELERATOR_TYPE value works whichever path the operator takes.
+    "v5litepod-1": ("ct5lp-hightpu-1t", 1),
+    "v5litepod-4": ("ct5lp-hightpu-4t", 4),
+    "v5litepod-8": ("ct5lp-hightpu-8t", 8),
 }
 _GCE_IMAGE_FLAGS = [
     "--image-project=ubuntu-os-accelerator-images",
     "--image-family=ubuntu-accel-2204-amd64-tpu-v5e-v5p-v6e",
 ]
-_GCE_TPU_FILTER = "machineType~'ct6e|ct5p'"
+_GCE_TPU_FILTER = "machineType~'ct6e|ct5p|ct5lp'"
 
 
 def _min_chips_for_model(model: str) -> int:
-    """Rough single-host chip floor for full-precision checkpoints (~32GB HBM per
-    v6e chip). Prevents the expensive failure mode of a big model on a small
-    accelerator: VM boot + image pull + ~10 min of loading before an inevitable OOM.
-    Quantized variants (QAT/int4/AWQ/GPTQ/FP8) are ~4x smaller — never blocked."""
+    """Rough single-host chip floor for a bf16 checkpoint. Prevents the expensive
+    failure mode of a big model on a small accelerator: VM boot + install +
+    ~10 min of weight loading before an inevitable OOM.
+
+    Sized against a v5e chip's 16GB HBM (a v6e chip has 32GB), because that is
+    this rig's target and the tighter of the two — bf16 12B alone is ~24GB of
+    weights, so it needs 2 chips before any KV cache. Quantized variants
+    (QAT/int4/AWQ/GPTQ/FP8) are ~4x smaller and always fit one chip."""
     lowered = model.lower()
     if any(q in lowered for q in ("qat", "int4", "q4", "awq", "gptq", "fp8")):
         return 1
-    for marker, chips in (("31B", 4), ("26B", 4)):
+    for marker, chips in (("31B", 8), ("26B", 8), ("12B", 2)):
         if marker in model:
             return chips
-    return 1  # 12B and below fit on a single chip
+    return 1  # E2B/E4B and other small checkpoints fit a single v5e chip
 
 
 @mcp.tool(title="Create flex-start TPU VM", annotations=WRITE)
 async def create_tpu_vm_instance(
     instance_name: Optional[str] = None,
     zone: Optional[str] = None,
-    accelerator: Annotated[str, Field(description="TPU type: v6e-1, v6e-4, v6e-8, or v5p-8")] = ACCELERATOR_TYPE,
+    accelerator: Annotated[str, Field(description="TPU type: v6e-1/4/8, v5e-1/4/8, or v5p-8")] = ACCELERATOR_TYPE,
     model_name: Optional[str] = None,
     boot_disk_size_gb: int = 200,
     max_run_duration: str = "4h",
     request_valid_for: str = "2h",
-    workload: Annotated[
-        Literal["vllm", "pytorch"],
-        Field(description="'vllm' serves model_name via docker; 'pytorch' installs the PyTorch TPU backend stack for direct torch workloads"),
-    ] = "vllm",
+    serve: Annotated[
+        bool,
+        Field(description="Install and start tpu_openai_server.py serving model_name; False leaves a bare torch node for kernel/bench work"),
+    ] = True,
 ) -> str:
-    """Creates a flex-start TPU VM as a GCE instance (recommended path for v6e/v5p).
-    workload='vllm' auto-starts Gemma 4 serving via the vLLM startup script;
-    workload='pytorch' instead installs PyTorch + the PyTorch TPU backend backend on the bare VM
-    and smoke-tests torch.compile(backend="tpu") — no docker, no HF token needed.
-    Boot disk defaults to 200GB because the image default (10GB) cannot hold the
-    vLLM TPU image."""
+    """Creates a flex-start TPU VM as a GCE instance and installs the PyTorch TPU
+    stack on it: a dedicated python3.12, the TPU backend from its authenticated
+    index, and a torch.compile(backend="tpu") smoke test. With serve=True (the
+    default) it also installs tpu_openai_server.py as a systemd unit serving
+    `model_name` on the configured port. No docker and no vLLM are involved.
+
+    Boot disk defaults to 200GB: the image default is 10GB, which the model
+    weights and the compile cache overflow."""
     zone = _zone(zone)
-    instance_name = instance_name or ("tpu-vm" if workload == "pytorch" else "vllm-gemma4-vm")
+    instance_name = instance_name or VM_NAME
     if accelerator not in _GCE_MACHINE_TYPES:
         supported = ", ".join(sorted(_GCE_MACHINE_TYPES))
         return f"❌ Unsupported accelerator '{accelerator}'. Supported: {supported}"
     machine_type, chips = _GCE_MACHINE_TYPES[accelerator]
 
     selected_model = model_name or MODEL_NAME
-    if workload == "pytorch":
-        try:
-            startup_script_content = _get_pytorch_startup_script(zone)
-        except RuntimeError as e:
-            return f"❌ Aborted: {e}"
-    else:
+    if serve:
         min_chips = _min_chips_for_model(selected_model)
         if chips < min_chips:
             return (
                 f"❌ `{selected_model}` needs ~{min_chips} chips but `{accelerator}` has {chips} — "
-                "it would OOM after a long load. Pick a larger accelerator or a smaller model."
+                "it would OOM after a long load. Pick a larger accelerator or a quantized checkpoint."
             )
-
-        token = await get_secret()
-        if not token:
-            return "❌ Aborted: 'hf-token' secret missing. Save one with `save_hf_token` first."
-
-        try:
-            startup_script_content = _get_formatted_startup_script(selected_model, zone, tp_size=chips)
-        except RuntimeError as e:
-            return f"❌ Aborted: {e}"
+    try:
+        startup_script_content = _get_pytorch_startup_script(zone, model_name=selected_model, serve=serve)
+    except RuntimeError as e:
+        return f"❌ Aborted: {e}"
     script_file = _write_startup_script(startup_script_content)
 
     create_cmd = [
@@ -793,17 +904,18 @@ async def create_tpu_vm_instance(
                 "find alternatives with `get_zones_with_available_quota`)"
             )
         return f"❌ Creation failed: {stderr}{hint}"
-    if workload == "pytorch":
+    if not serve:
         return (
             f"🚀 Flex-start TPU VM `{instance_name}` ({machine_type}, {chips} chip(s)) created in {zone}; "
-            f"installing PyTorch + the PyTorch TPU backend (`{TPU_BACKEND_PIP_SPEC}`). Follow with `wait_for_pytorch_ready` "
+            f"installing the PyTorch TPU stack (`{TPU_BACKEND_PIP_SPEC}`). Follow with `wait_for_pytorch_ready` "
             f"or `get_tpu_vm_serial_log`, then `verify_pytorch_tpu`; the VM self-deletes at "
             f"max-run-duration ({max_run_duration}).\n{stdout}"
         )
     return (
         f"🚀 Flex-start TPU VM `{instance_name}` ({machine_type}, {chips} chip(s)) created in {zone}; "
-        f"vLLM is starting `{selected_model}` (tp={chips}). Model load can take ~10 min — follow progress "
-        f"with `get_tpu_vm_serial_log` and note the VM self-deletes at max-run-duration ({max_run_duration}).\n{stdout}"
+        f"installing the PyTorch TPU stack, then serving `{selected_model}` on port {SERVE_PORT} "
+        f"(SEQ={SERVE_SEQ}). Weight download plus the first compile takes ~10-15 min — follow with "
+        f"`wait_for_serving_ready`. The VM self-deletes at max-run-duration ({max_run_duration}).\n{stdout}"
     )
 
 
@@ -851,9 +963,9 @@ async def get_tpu_vm_serial_log(
     instance_name: str, zone: Optional[str] = None, tail: Annotated[int, Field(ge=1, le=1000)] = 40
 ) -> str:
     """Tails the serial-console output of a GCE TPU VM. SSH to TPU VMs is often blocked by
-    firewall policy, so this is the primary way to watch startup-script/vLLM boot progress.
-    Success markers: 'vLLM application startup complete.' (vllm workload) or
-    'TPU environment ready.' (pytorch workload)."""
+    firewall policy, so this is the primary way to watch startup-script boot progress.
+    Success markers: 'TPU environment ready.' (torch stack installed and smoke-tested)
+    and 'TPU serving started.' (tpu_openai_server.py unit launched)."""
     zone = _zone(zone)
     cmd = [
         "gcloud",
@@ -870,7 +982,7 @@ async def get_tpu_vm_serial_log(
     lines = stdout.splitlines()
     # Show output from the most recent startup-script run when a marker is present.
     for i in range(len(lines) - 1, -1, -1):
-        if "Starting Queued vLLM Bootloader" in lines[i] or "Starting the PyTorch TPU backend Bootloader" in lines[i]:
+        if "Starting the PyTorch TPU Bootloader" in lines[i]:
             lines = lines[i:]
             break
     return "\n".join(lines[-tail:]) if lines else "No serial output available yet."
@@ -899,9 +1011,10 @@ async def _get_instance_ips(instance_name: str, zone: str) -> tuple[Optional[str
 
 @mcp.tool(title="Get TPU VM endpoint", annotations=READ_ONLY)
 async def get_tpu_vm_endpoint(instance_name: str, zone: Optional[str] = None) -> str:
-    """Returns the vLLM endpoint URLs of a GCE TPU VM and probes their health. Port 8000
-    is frequently unreachable from outside the VPC (firewall) even when serving is healthy —
-    if both probes fail, check `get_tpu_vm_serial_log` for the startup-complete marker."""
+    """Returns the serving endpoint URLs of a GCE TPU VM and probes their health. The
+    serving port is frequently unreachable from outside the VPC (firewall) even when
+    serving is healthy — if both probes fail, check `get_tpu_vm_serial_log` for the
+    'TPU serving started.' marker."""
     zone = _zone(zone)
     external, internal = await _get_instance_ips(instance_name, zone)
     if not external and not internal:
@@ -912,7 +1025,7 @@ async def get_tpu_vm_endpoint(instance_name: str, zone: Optional[str] = None) ->
         for label, ip in (("external", external), ("internal", internal)):
             if not ip:
                 continue
-            url = f"http://{ip}:8000"
+            url = f"http://{ip}:{SERVE_PORT}"
             try:
                 res = await client.get(f"{url}/health")
                 status = "🟢 healthy" if res.status_code == 200 else f"⚠️ HTTP {res.status_code}"
@@ -922,16 +1035,17 @@ async def get_tpu_vm_endpoint(instance_name: str, zone: Optional[str] = None) ->
     return f"### Endpoints for `{instance_name}`\n" + "\n".join(report)
 
 
-@mcp.tool(title="Wait for vLLM ready", annotations=READ_ONLY)
-async def wait_for_vllm_ready(
-    instance_name: str = "vllm-gemma4-vm",
+@mcp.tool(title="Wait for TPU serving ready", annotations=READ_ONLY)
+async def wait_for_serving_ready(
+    instance_name: str = VM_NAME,
     zone: Optional[str] = None,
-    timeout_minutes: Annotated[int, Field(ge=1, le=30)] = 15,
+    timeout_minutes: Annotated[int, Field(ge=1, le=30)] = 20,
 ) -> str:
-    """Polls a GCE flex-start TPU VM every 30s until vLLM serving is ready, checking
-    the health endpoint and the serial-console startup marker. One call replaces
-    manual serial-log polling; model load typically takes ~10 min. Also fails fast
-    if the startup script logs an ERROR (e.g. Secret Manager access denied)."""
+    """Polls a GCE flex-start TPU VM every 30s until tpu_openai_server.py answers on
+    /health, falling back to the serial-console marker when the port is firewalled.
+    One call replaces manual serial-log polling; weight download plus the first
+    compile typically takes 10-15 min. Fails fast if the startup script logs an
+    ERROR (e.g. Secret Manager access denied)."""
     zone = _zone(zone)
     deadline = time.monotonic() + timeout_minutes * 60
     last_signal = "no serial output yet"
@@ -942,17 +1056,21 @@ async def wait_for_vllm_ready(
                 continue
             try:
                 async with httpx.AsyncClient(timeout=5) as client:
-                    res = await client.get(f"http://{ip}:8000/health")
+                    res = await client.get(f"http://{ip}:{SERVE_PORT}/health")
                 if res.status_code == 200:
-                    return f"🟢 vLLM is serving on `{instance_name}` at http://{ip}:8000 (health check passed)."
+                    return (
+                        f"🟢 Serving on `{instance_name}` at http://{ip}:{SERVE_PORT} "
+                        f"(health check passed): {res.text}"
+                    )
             except Exception:
                 pass
 
         serial = await get_tpu_vm_serial_log(instance_name, zone=zone, tail=40)
-        if "vLLM application startup complete." in serial:
+        if "TPU serving started." in serial:
             return (
-                f"🟢 vLLM startup complete on `{instance_name}` (serial-console marker). "
-                "Port 8000 isn't reachable from here — likely firewall; serving is up inside the VPC."
+                f"🟢 Serving unit started on `{instance_name}` (serial-console marker). "
+                f"Port {SERVE_PORT} isn't reachable from here — likely firewall; the model may "
+                "also still be warming up (weight load + compile happen inside the unit)."
             )
         error_lines = [line for line in serial.splitlines() if line.startswith("ERROR:")]
         if error_lines:
@@ -968,15 +1086,16 @@ async def wait_for_vllm_ready(
         await asyncio.sleep(30)
 
 
-@mcp.tool(title="Wait for PyTorch/the PyTorch TPU backend ready", annotations=READ_ONLY)
+@mcp.tool(title="Wait for the PyTorch TPU stack ready", annotations=READ_ONLY)
 async def wait_for_pytorch_ready(
-    instance_name: str = "tpu-vm",
+    instance_name: str = VM_NAME,
     zone: Optional[str] = None,
     timeout_minutes: Annotated[int, Field(ge=1, le=30)] = 10,
 ) -> str:
-    """Polls a workload='pytorch' flex-start TPU VM every 30s until the startup script
-    reports 'TPU environment ready.' on the serial console (torch installed and
-    the compile smoke test passed). Fails fast if the script logs an ERROR."""
+    """Polls a flex-start TPU VM every 30s until the startup script reports
+    'TPU environment ready.' on the serial console (torch installed and the compile
+    smoke test passed). That marker precedes serving — use `wait_for_serving_ready`
+    when you care about the model being up. Fails fast if the script logs an ERROR."""
     zone = _zone(zone)
     deadline = time.monotonic() + timeout_minutes * 60
     last_signal = "no serial output yet"
@@ -1003,20 +1122,20 @@ async def wait_for_pytorch_ready(
 
 @mcp.tool(title="Verify PyTorch sees the TPU", annotations=READ_ONLY)
 async def verify_pytorch_tpu(
-    instance_name: Optional[str] = "tpu-vm",
-    resource_id: str = "vllm-gemma4-qr",
+    instance_name: Optional[str] = VM_NAME,
+    resource_id: str = QR_NAME,
     zone: Optional[str] = None,
 ) -> str:
     """Reruns the PyTorch TPU backend smoke test (/opt/tpu_smoke.py, installed by the
-    pytorch startup script) on the VM over SSH: checks torch.accelerator sees the
-    TPU and a torch.compile(backend="tpu") matmul runs. Targets a GCE flex-start VM
-    via instance_name (default) or a queued resource's node via resource_id when
+    startup script) on the VM over SSH: checks torch sees the TPU and a
+    torch.compile(backend="tpu") matmul runs. Targets a GCE flex-start VM via
+    instance_name (default) or a queued resource's node via resource_id when
     instance_name is None/empty."""
     zone = _zone(zone)
     remote_cmd = (
         "if command -v python3.12 >/dev/null && [ -f /opt/tpu_smoke.py ]; then "
         "python3.12 /opt/tpu_smoke.py; "
-        "else echo 'ERROR: the PyTorch TPU backend env not found — was this VM created with workload=pytorch?'; exit 1; fi"
+        "else echo 'ERROR: the PyTorch TPU env is not installed on this host'; exit 1; fi"
     )
     argv, target = await _build_tpu_ssh_cmd(remote_cmd, resource_id, instance_name, zone)
     if argv is None:
@@ -1030,15 +1149,15 @@ async def verify_pytorch_tpu(
 
 @mcp.tool(title="Update the PyTorch TPU backend wheels", annotations=WRITE)
 async def update_tpu(
-    instance_name: Optional[str] = "tpu-vm",
-    resource_id: str = "vllm-gemma4-qr",
+    instance_name: Optional[str] = VM_NAME,
+    resource_id: str = QR_NAME,
     zone: Optional[str] = None,
     version: Annotated[
         Optional[str],
         Field(description="Pin the backend to this exact version; omit for the latest nightly"),
     ] = None,
 ) -> str:
-    """Upgrades the PyTorch TPU backend in place on a workload='pytorch' VM: fetches a fresh
+    """Upgrades the PyTorch TPU backend in place on a TPU VM: fetches a fresh
     access token from the metadata server, pip-installs the latest nightly (or
     `version` if pinned) from the authenticated index, reports the old -> new
     version, and reruns the compile smoke test. The paired CPU torch bumps
@@ -1059,7 +1178,7 @@ async def update_tpu(
     remote_cmd = (
         "set -e; "
         "if ! command -v python3.12 >/dev/null || [ ! -f /opt/tpu_smoke.py ]; then "
-        "echo 'ERROR: the PyTorch TPU backend env not found — was this VM created with workload=pytorch?'; exit 1; fi; "
+        "echo 'ERROR: the PyTorch TPU env is not installed on this host'; exit 1; fi; "
         'TOKEN=$(curl -sf -H "Metadata-Flavor: Google" '
         '"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" '
         "| python3 -c 'import json,sys; print(json.load(sys.stdin)[\"access_token\"])'); "
@@ -1085,7 +1204,7 @@ async def update_tpu(
 
 async def _get_zones_with_available_quota_list(
     service: str = "tpu.googleapis.com",
-    quota_id: str = "TPUV6EPerProjectPerZoneForTPUAPI",
+    quota_id: str = TPU_QUOTA_ID,
 ) -> list[str]:
     """Helper to retrieve a list of GCP zones that have a non-zero quota for a specific metric."""
     cmd = [
@@ -1129,7 +1248,7 @@ async def _get_zones_with_available_quota_list(
 @mcp.tool(title="List zones with quota", annotations=READ_ONLY)
 async def get_zones_with_available_quota(
     service: Annotated[str, Field(description="GCP service to query")] = "tpu.googleapis.com",
-    quota_id: Annotated[str, Field(description="Quota ID to filter by")] = "TPUV6EPerProjectPerZoneForTPUAPI",
+    quota_id: Annotated[str, Field(description="Quota ID to filter by")] = TPU_QUOTA_ID,
 ) -> str:
     """Retrieves the GCP zones that have a non-zero quota limit for a specific metric."""
     zones = await _get_zones_with_available_quota_list(service, quota_id)
@@ -1183,9 +1302,9 @@ async def _update_status_file(zone: str, success_str: str, detail_str: str) -> N
 
 @mcp.tool(title="Find TPU capacity across zones", annotations=DESTRUCTIVE)
 async def find_tpu(
-    resource_id: str = "vllm-gemma4-qr",
+    resource_id: str = QR_NAME,
     service: Annotated[str, Field(description="GCP service to query for quota")] = "tpu.googleapis.com",
-    quota_id: Annotated[str, Field(description="Quota ID to filter zones by")] = "TPUV6EPerProjectPerZoneForTPUAPI",
+    quota_id: Annotated[str, Field(description="Quota ID to filter zones by")] = TPU_QUOTA_ID,
 ) -> str:
     """Sweeps every zone with available quota, creating the queued resource and polling
     until one reaches ACTIVE. Side effects: deletes the created resource in each zone
@@ -1297,7 +1416,7 @@ async def find_tpu(
 @mcp.tool(title="Find flex-start TPU VM capacity", annotations=WRITE)
 async def find_tpu_vm(
     instance_name: Optional[str] = None,
-    accelerator: Annotated[str, Field(description="TPU type: v6e-1, v6e-4, v6e-8, or v5p-8")] = ACCELERATOR_TYPE,
+    accelerator: Annotated[str, Field(description="TPU type: v6e-1/4/8, v5e-1/4/8, or v5p-8")] = ACCELERATOR_TYPE,
     zones: Annotated[
         Optional[list[str]],
         Field(description="Zones to try in order; defaults to the zones with TPU quota"),
@@ -1306,18 +1425,18 @@ async def find_tpu_vm(
     per_zone_wait: Annotated[
         str, Field(description="How long each zone's flex-start request stays valid, e.g. '5m'")
     ] = "5m",
-    workload: Annotated[
-        Literal["vllm", "pytorch"],
-        Field(description="'vllm' serves model_name via docker; 'pytorch' installs the PyTorch TPU backend stack for direct torch workloads"),
-    ] = "vllm",
+    serve: Annotated[
+        bool,
+        Field(description="Install and start tpu_openai_server.py serving model_name; False leaves a bare torch node"),
+    ] = True,
 ) -> str:
     """GCE counterpart of `find_tpu`: tries flex-start TPU VM creation across zones
     until one grants capacity. TPUS_PER_TPU_FAMILY quota is only discoverable by
     attempting creation, so quota failures fail fast and the sweep moves on; each
     attempt's request expires after `per_zone_wait` so no pending requests pile up.
     On success, switches the server's default zone to the winning zone. Follow up
-    with `wait_for_vllm_ready` (or `wait_for_pytorch_ready` for workload='pytorch')."""
-    instance_name = instance_name or ("tpu-vm" if workload == "pytorch" else "vllm-gemma4-vm")
+    with `wait_for_serving_ready` (or `wait_for_pytorch_ready` when serve=False)."""
+    instance_name = instance_name or VM_NAME
     candidate_zones = zones or await _get_zones_with_available_quota_list()
     if not candidate_zones:
         return "❌ No candidate zones: no zones with TPU quota found — pass `zones` explicitly."
@@ -1331,7 +1450,7 @@ async def find_tpu_vm(
             accelerator=accelerator,
             model_name=model_name,
             request_valid_for=per_zone_wait,
-            workload=workload,
+            serve=serve,
         )
         attempts.append(f"- **{zone}**: {result.splitlines()[0]}")
         if result.startswith("🚀"):

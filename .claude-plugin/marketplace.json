@@ -1,5 +1,5 @@
 {
-  "name": "tpu-skill-claude",
+  "name": "tpu-pytorch-v5e1-12b",
   "description": "Claude Code plugins for Google Cloud TPU DevOps: the tpu-management skill and tpu-devops MCP server for Gemma 4 vLLM serving on TPU VMs.",
   "owner": {
     "name": "xbill9",
