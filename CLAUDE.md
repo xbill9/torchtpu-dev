@@ -33,7 +33,7 @@ make init TARGET=/path/to/project ARGS='--project <id>'  # install skill + regis
 claude plugin validate .   # check .claude-plugin manifests
 ```
 
-The server's config comes from env vars: `GOOGLE_CLOUD_PROJECT`, `MODEL_NAME`, `ACCELERATOR_TYPE`, `TENSOR_PARALLEL_SIZE`, `TORCH_TPU_PIP_SPEC` / `TORCH_TPU_INDEX` (packages and Artifact Registry pip index for `workload="pytorch"` VMs).
+The server's config comes from env vars: `GOOGLE_CLOUD_PROJECT`, `MODEL_NAME`, `ACCELERATOR_TYPE`, `TENSOR_PARALLEL_SIZE`, and the `TPU_BACKEND_*` family for `workload="pytorch"` VMs — `TPU_BACKEND_PIP_SPEC` / `TPU_BACKEND_INDEX` (packages + Artifact Registry pip index), `TPU_BACKEND_WHEELS_GCS` (preferred: GCS wheel mirror), `TPU_BACKEND_PIP_EXTRAS`, `TPU_BACKEND_ENV_EXPORTS` (passthrough to `/etc/environment`, used for the persistent compile cache). None carry defaults: the backend package name and registry live in the operator's environment, never in the tracked tree.
 
 ## Technical Standards: vLLM & Gemma 4 Tool Calling
 

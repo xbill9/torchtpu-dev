@@ -41,12 +41,31 @@ DEFAULT_MODEL = "google/gemma-4-E2B-it"
 # annotations` every annotation is a string, and FastAPI resolves them against
 # module globals. Nested inside create_app they are invisible to that lookup and
 # each body param silently degrades to a query param ("field required: query.req").
-from pydantic import BaseModel, Field  # noqa: E402
+from pydantic import BaseModel, Field, field_validator  # noqa: E402
 
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: str | list[dict]
+
+    @field_validator("content")
+    @classmethod
+    def _flatten(cls, v):
+        """Accept OpenAI's list-of-parts content and collapse it to plain text.
+
+        Clients built against the OpenAI schema send content as a parts list even
+        for pure text. The decode loop is text-only, so text parts are joined and
+        anything else is rejected explicitly rather than silently dropped.
+        """
+        if isinstance(v, str):
+            return v
+        parts = []
+        for p in v:
+            kind = p.get("type")
+            if kind != "text":
+                raise ValueError(f"unsupported content part {kind!r}; this server is text-only")
+            parts.append(p.get("text", ""))
+        return "".join(parts)
 
 
 class ChatRequest(BaseModel):
@@ -98,6 +117,8 @@ class StaticDecodeEngine:
 
     Shapes never change after warmup, so torch.compile(backend="tpu",
     dynamic=False) compiles exactly once and every later request reuses it.
+    dynamic=False is load-bearing: without it dynamo can re-specialize and pay
+    the multi-second compile again mid-request.
     """
 
     def __init__(self, model_id: str, seq: int = 256) -> None:
@@ -130,7 +151,7 @@ class StaticDecodeEngine:
             logits = self.model(input_ids=tokens, attention_mask=mask, use_cache=False).logits
             return logits.index_select(1, last_idx)  # [1, 1, vocab]
 
-        self.step = torch.compile(step, backend="tpu")
+        self.step = torch.compile(step, backend="tpu", dynamic=False)
         self._one = torch.ones((1, 1), dtype=torch.long).to(self.device)
         self.lock = asyncio.Lock()  # one TPU process -> serialize requests
         self.warm = False
@@ -174,9 +195,13 @@ class StaticDecodeEngine:
         )["input_ids"]
         return ids[0].tolist()
 
-    def generate(self, prompt_ids: list[int], max_tokens: int, temperature: float, top_p: float):
-        """Yields (token_id, text_piece) per step. Caller must hold self.lock."""
-        torch = self.torch
+    def budget_for(self, prompt_ids: list[int], max_tokens: int) -> int:
+        """How many tokens we can decode. Raises ValueError if the prompt leaves no room.
+
+        Callers check this before starting a stream: generate() is lazy, so an
+        exception raised inside it would surface after the 200 is already on the
+        wire and the client would see a truncated stream instead of a 400.
+        """
         n_prompt = len(prompt_ids)
         budget = min(max_tokens, self.seq - n_prompt - 1)
         if budget <= 0:
@@ -184,6 +209,18 @@ class StaticDecodeEngine:
                 f"prompt is {n_prompt} tokens; buffer is {self.seq} with no room to decode. "
                 f"Start the server with a larger --seq."
             )
+        return budget
+
+    def generate(self, prompt_ids: list[int], max_tokens: int, temperature: float, top_p: float):
+        """Yields (token_id, text_piece) per step. Caller must hold self.lock.
+
+        Returns the OpenAI finish_reason: "stop" if a stop token ended it,
+        "length" if it ran out of budget. Read it off StopIteration.value —
+        drive_sync/drive_async below do that.
+        """
+        torch = self.torch
+        n_prompt = len(prompt_ids)
+        budget = self.budget_for(prompt_ids, max_tokens)
 
         tokens = torch.full((1, self.seq), self.pad_id, dtype=torch.long)
         tokens[0, :n_prompt] = torch.tensor(prompt_ids, dtype=torch.long)
@@ -212,12 +249,52 @@ class StaticDecodeEngine:
 
                 tid = int(nxt.cpu().item())  # one sync per token: needed to stream and stop
                 if tid in self.stop_ids:
-                    break
+                    return "stop"
                 yield tid, self.tokenizer.decode([tid], skip_special_tokens=True)
 
                 tokens = tokens.index_copy(1, pos, nxt.view(1, 1))
                 mask = mask.index_copy(1, pos, self._one)
                 pos = pos + 1
+        return "length"
+
+
+_DONE = object()
+
+
+def _step_or_done(gen):
+    """One generator step, with StopIteration converted to a value.
+
+    StopIteration cannot propagate across an asyncio future, so the streaming
+    path cannot simply call next() inside to_thread.
+    """
+    try:
+        return next(gen)
+    except StopIteration as e:
+        return (_DONE, e.value or "stop")
+
+
+def drive_sync(gen):
+    """Run a generate() generator to completion. Returns (text, n_tokens, reason)."""
+    pieces = []
+    while True:
+        item = _step_or_done(gen)
+        if item[0] is _DONE:
+            return "".join(pieces), len(pieces), item[1]
+        pieces.append(item[1])
+
+
+async def drive_async(gen):
+    """Yield (piece, reason) as tokens arrive, stepping the TPU off the event loop.
+
+    Each step is a synchronous TPU call taking milliseconds; running it inline
+    would stall every other request for the length of the generation.
+    """
+    while True:
+        item = await asyncio.to_thread(_step_or_done, gen)
+        if item[0] is _DONE:
+            yield None, item[1]
+            return
+        yield item[1], None
 
 
 def create_app(engine: StaticDecodeEngine):
@@ -242,42 +319,54 @@ def create_app(engine: StaticDecodeEngine):
         }
 
     def _run(prompt_ids, req):
-        pieces, ids = [], []
-        for tid, piece in engine.generate(prompt_ids, req.max_tokens, req.temperature, req.top_p):
-            ids.append(tid)
-            pieces.append(piece)
-        return "".join(pieces), len(ids)
+        return drive_sync(
+            engine.generate(prompt_ids, req.max_tokens, req.temperature, req.top_p)
+        )
 
     async def _stream_chat(prompt_ids, req, cid, created):
-        head = {
-            "id": cid,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": req.model,
-            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
-        }
+        def envelope(choice):
+            return {
+                "id": cid,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": req.model,
+                "choices": [choice],
+            }
+
+        head = envelope({"index": 0, "delta": {"role": "assistant"}, "finish_reason": None})
         yield f"data: {json.dumps(head)}\n\n"
         async with engine.lock:
-            for _tid, piece in engine.generate(
-                prompt_ids, req.max_tokens, req.temperature, req.top_p
-            ):
+            gen = engine.generate(prompt_ids, req.max_tokens, req.temperature, req.top_p)
+            async for piece, reason in drive_async(gen):
+                if piece is None:
+                    tail = envelope({"index": 0, "delta": {}, "finish_reason": reason})
+                    yield f"data: {json.dumps(tail)}\n\n"
+                    break
+                chunk = envelope(
+                    {"index": 0, "delta": {"content": piece}, "finish_reason": None}
+                )
+                yield f"data: {json.dumps(chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    async def _stream_completion(prompt_ids, req, cid, created):
+        async with engine.lock:
+            gen = engine.generate(prompt_ids, req.max_tokens, req.temperature, req.top_p)
+            async for piece, reason in drive_async(gen):
+                choice = (
+                    {"index": 0, "text": "", "finish_reason": reason}
+                    if piece is None
+                    else {"index": 0, "text": piece, "finish_reason": None}
+                )
                 chunk = {
                     "id": cid,
-                    "object": "chat.completion.chunk",
+                    "object": "text_completion",
                     "created": created,
                     "model": req.model,
-                    "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}],
+                    "choices": [choice],
                 }
                 yield f"data: {json.dumps(chunk)}\n\n"
-                await asyncio.sleep(0)
-        tail = {
-            "id": cid,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": req.model,
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-        }
-        yield f"data: {json.dumps(tail)}\n\n"
+                if piece is None:
+                    break
         yield "data: [DONE]\n\n"
 
     @app.post("/v1/chat/completions")
@@ -285,13 +374,17 @@ def create_app(engine: StaticDecodeEngine):
         prompt_ids = engine.encode_chat([m.model_dump() for m in req.messages])
         cid = f"chatcmpl-{uuid.uuid4().hex[:24]}"
         created = int(time.time())
+        try:
+            engine.budget_for(prompt_ids, req.max_tokens)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         if req.stream:
             return StreamingResponse(
                 _stream_chat(prompt_ids, req, cid, created), media_type="text/event-stream"
             )
         async with engine.lock:
             try:
-                text, n_out = await asyncio.to_thread(_run, prompt_ids, req)
+                text, n_out, reason = await asyncio.to_thread(_run, prompt_ids, req)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
         return {
@@ -303,7 +396,7 @@ def create_app(engine: StaticDecodeEngine):
                 {
                     "index": 0,
                     "message": {"role": "assistant", "content": text},
-                    "finish_reason": "stop",
+                    "finish_reason": reason,
                 }
             ],
             "usage": {
@@ -316,17 +409,28 @@ def create_app(engine: StaticDecodeEngine):
     @app.post("/v1/completions")
     async def completions(req: CompletionRequest):
         prompt_ids = engine.encode_text(req.prompt)
+        cid = f"cmpl-{uuid.uuid4().hex[:24]}"
+        created = int(time.time())
+        try:
+            engine.budget_for(prompt_ids, req.max_tokens)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if req.stream:
+            return StreamingResponse(
+                _stream_completion(prompt_ids, req, cid, created),
+                media_type="text/event-stream",
+            )
         async with engine.lock:
             try:
-                text, n_out = await asyncio.to_thread(_run, prompt_ids, req)
+                text, n_out, reason = await asyncio.to_thread(_run, prompt_ids, req)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
         return {
-            "id": f"cmpl-{uuid.uuid4().hex[:24]}",
+            "id": cid,
             "object": "text_completion",
-            "created": int(time.time()),
+            "created": created,
             "model": req.model,
-            "choices": [{"index": 0, "text": text, "finish_reason": "stop"}],
+            "choices": [{"index": 0, "text": text, "finish_reason": reason}],
             "usage": {
                 "prompt_tokens": len(prompt_ids),
                 "completion_tokens": n_out,
