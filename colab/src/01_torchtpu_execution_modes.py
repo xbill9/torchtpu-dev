@@ -20,29 +20,50 @@
 # PyTorch developers meeting a TPU for the first time, and anyone deciding how to run an existing
 # PyTorch model on one. Terms are explained where they first appear. No JAX is involved.
 #
-# ### The study in one paragraph
+# ### What this notebook is for
+#
+# One practical choice: when you run ordinary PyTorch code on a TPU with TorchTPU, how should you let
+# it run? The notebook answers by timing each option on the chip you are connected to.
+#
+# ### The background
 #
 # TorchTPU is the open-source PyTorch backend for Cloud TPUs, released 2026-10-20. You move tensors to
-# `torch.device("tpu")` and your code runs on the chip, with no rewrite. Every operation you call is
-# compiled by XLA before it runs, and the backend offers three ways to decide how much code each
-# compile covers: one operation at a time (strict eager, the default), whatever has queued up when
-# you next need a result (defer-and-fuse, one environment variable), or a whole function you hand to
-# `torch.compile`. The choice trades time to the first result against time per step, and two habits
-# decide whether the fast modes stay fast: keeping tensor shapes fixed, and not reading values back
-# to Python in the middle of a step.
+# `torch.device("tpu")` and your code runs on the chip, with no rewrite. Under the hood, a TPU runs
+# compiled programs only: every piece of PyTorch code is compiled into a TPU program before it runs.
+# TorchTPU gives you three ways to decide how much code goes into each compile:
 #
-# ### What this notebook does
+# 1. **Strict eager**, the default. One operation at a time: every `+`, `matmul` or `sin` is compiled
+#    on its own. The first answer comes fast, but every operation pays a fixed launch cost.
+# 2. **Defer-and-fuse**, set with `TORCH_TPU_DEFER_AND_FUSE=1`. Operations queue up, and whatever has
+#    piled up when you need a result is compiled as one program. One environment variable, no code
+#    changes.
+# 3. **`torch.compile`**. You hand over a whole function and it is compiled once as a single program.
+#    The first call is the slowest; every repeat is the fastest.
 #
-# It installs TorchTPU from PyPI and asks, on your chip:
+# ### What each section shows
 #
-# 1. **What does each mode cost?** First-call time and steady step time for a stack of matmuls, in
-#    all three modes, and a check that they compute the same numbers.
-# 2. **What do tiny operations cost?** The same comparison for a chain of small elementwise ops,
-#    where strict eager is at its worst.
-# 3. **Why does `torch.compile` recompile?** Four prompt lengths, compiled raw and then padded to a
-#    bucket, with the compile count and a check that padding changed nothing.
-# 4. **What does one `.item()` cost?** A loop with and without a value read back to Python each
-#    step.
+# Measured on a Colab v5e-1 on 2026-10-21. Your run measures its own numbers beside these.
+#
+# * **Section 2, a stack of large matmuls.** Strict eager answers first: 0.15 s, against 2.5 to 3.2 s
+#   for the other two. Once warmed up, the two fused modes run each step 1.5x to 1.7x faster.
+# * **Section 3, 192 tiny operations.** Where strict eager hurts. Each tiny operation costs 50 to 70
+#   microseconds just to launch, so the chip mostly waits on Python. `torch.compile` turns the chain
+#   into one program and runs it about 100x faster.
+# * **Section 4, changing shapes.** A compiled function is built for one exact input shape. Prompts of
+#   100, 101, 102 and 250 tokens cost four compiles. Padding them up to multiples of 128 cuts that to
+#   two, and the answers come out identical.
+# * **Section 5, reading a value back.** Calling `.item()` inside a loop makes the program stop and
+#   wait for the chip every time. One read per step made the loop 1.3x to 1.6x slower.
+#
+# ### The takeaway
+#
+# Develop in the default mode. Turn on defer-and-fuse for a speedup that needs no code change. For the
+# code that runs over and over, wrap it in `torch.compile`, pad its inputs to a few fixed sizes, and
+# keep value reads out of the loop.
+#
+# This is how the serving code in this repo runs Gemma 4: `tpu_openai_server.py` pads every prompt
+# into one fixed-size buffer and compiles the decode step once. The notebook shows, on synthetic
+# data, why that design is fast.
 #
 # ### The three rules used throughout
 #
