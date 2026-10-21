@@ -7,6 +7,7 @@ Open a notebook in Colab, pick **Runtime → Change runtime type → v5e-1 TPU**
 | Notebook | What it teaches | Token? | Status |
 | --- | --- | --- | --- |
 | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xbill9/torchtpu-dev/blob/main/colab/notebooks/01_torchtpu_execution_modes.ipynb) [`01_torchtpu_execution_modes`](notebooks/01_torchtpu_execution_modes.ipynb) | TorchTPU's three execution modes (strict eager, defer-and-fuse, `torch.compile`), tiny-op dispatch cost, static shapes and buckets, and the cost of `.item()`, measured on synthetic tensors | No | Verified on a Colab v5e-1, 2026-10-21 (`runs/2026-10-21/`) |
+| [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xbill9/torchtpu-dev/blob/main/colab/notebooks/02_e2b_repack_on_torchtpu.ipynb) [`02_e2b_repack_on_torchtpu`](notebooks/02_e2b_repack_on_torchtpu.ipynb) | Gemma 4 E2B QAT repack on TorchTPU: getting it onto the chip (`key_mapping`, `device_map="tpu"`), five ways to generate with speed, memory and token agreement, and the compiled step's graph breaks | No | Verified on a Colab v5e-1, 2026-10-21 (`runs/2026-10-21/`) |
 
 #### Authoring model
 
