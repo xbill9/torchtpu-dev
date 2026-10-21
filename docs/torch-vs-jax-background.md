@@ -91,7 +91,28 @@ Also published:
 
 #### 6. Measured on this machine
 
-**Same chip, both stacks, same day: none exists yet.** That is the gap notebook 03 fills.
+**Same chip, same checkpoint, same day: notebook 03** (`T/colab/runs/2026-10-21/03_e2b_jax_vs_torchtpu_output.ipynb`; Colab v5e-1; `xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text`; prompt of 19 tokens; 64 greedy tokens; two runs on 2026-10-21). Versions: JAX 0.11.2, `libtpu` 0.0.50 (shared by both stacks), `tpu-jax` at `4b9f8e9`, `torch` 2.14.1+cpu, `torch_tpu` 0.2.0, `transformers` 5.20.1, `compressed-tensors` 0.19.0.
+
+| Engine | Decode tok/s | Load | First 64-token call | Memory on chip |
+| --- | ---: | ---: | ---: | ---: |
+| JAX `tpu-jax`, weights unpacked at load (bf16) | 130.8 to 133.9 | 16.1 to 16.2 s | 22.9 to 23.4 s | 9.30 GB |
+| JAX `tpu-jax`, 4-bit packed | 103.1 to 103.3 | 7.3 to 7.4 s | 39.5 to 39.9 s | 6.62 GB |
+| PyTorch, defer-and-fuse `generate` | 8.8 to 9.7 | 42.6 to 42.8 s | 649.6 to 658.7 s | 11.91 GB |
+| PyTorch, compiled fixed buffer (no KV cache) | 6.3 to 6.4 | 20.0 to 20.1 s | 11.4 to 11.6 s | 9.83 GB |
+| PyTorch, strict eager `generate` | 4.7 to 4.9 | 21.2 to 21.9 s | 21.0 s | 9.87 GB |
+
+- Decode rate: 63 tokens divided by the warm 64-token time minus the warm 1-token time, the same stopwatch for every engine. The JAX engine's own timer agreed (104.6 to 104.8 and 132.6 to 135.7 tok/s).
+- The notebook prints the ratios: JAX 4-bit over the best PyTorch way 10.6x and 11.7x; JAX bf16 13.8x and 14.8x.
+- Agreement:
+  - Both JAX configurations and the PyTorch compiled buffer wrote the same 64 tokens.
+  - PyTorch `generate`, in eager and in defer-and-fuse, matched for 56 tokens and then diverged.
+  - Over a fixed 83-token sequence, JAX bf16 against PyTorch eager: mean KL 0.001073, max 0.008882, same top token at 83 of 83 positions. That KL is about five times the 0.00021 between two weight builds in colab-jax 02.
+  - JAX 4-bit against JAX bf16: KL exactly 0.
+- Loading needed two fixes on the PyTorch side (notebook 02, `T/colab/runs/2026-10-21/02_e2b_repack_on_torchtpu_output.ipynb`):
+  - `key_mapping` for the repack's tensor names (0 of 541 matched as stored, 540 after mapping).
+  - `device_map="tpu"`, because `model.to("tpu")` moved 0 of 1,098 tensors and raised nothing.
+- The PyTorch compiled step split into 24 graphs with 60 graph breaks ("Data pointer comparison").
+- Read the gap as a general-purpose model implementation against a decode engine written for TPU. The JAX side is a hand-written engine with a KV cache and a single compiled decode step. The PyTorch side is Transformers' own Gemma 4 code. A PyTorch serving engine (vLLM-TorchTPU) is unmeasured here.
 
 **A. TorchTPU on a Colab v5e-1, 2026-10-21.**
 
@@ -158,4 +179,5 @@ All three working ways produced the same text. The two failures come from the mu
 
 - **Can, from published sources:** TorchTPU replaces PyTorch/XLA; it is eager first with three modes plus `torch.compile`; it lowers through StableHLO and XLA like JAX; Google reports parity or near-parity with JAX on three large workloads on v6e/v7. (All of this is vendor-reported.)
 - **Can, from this machine:** on a v5e-1, the mode choice moves a matmul stack 1.5x to 1.7x and a tiny-op chain about 100x. On TorchTPU 0.2.0, Hugging Face `generate` with Gemma 4 runs in strict eager and slows down under defer-and-fuse.
-- **Cannot yet:** any same-chip, same-checkpoint, same-day JAX vs TorchTPU number for Gemma 4. Notebook 03 is designed to produce exactly that. Until then, the v6e-1 July numbers (B) and the colab-jax numbers (C) come from different chips or dates, and must not be put side by side as a ratio.
+- **Can now, from notebook 03:** on one v5e-1 with one checkpoint, the JAX engine and PyTorch on TorchTPU pick the same top token at every scored position. The JAX engine decodes 10.6x to 14.8x faster than the best PyTorch way through Transformers.
+- **Cannot yet:** anything about vLLM-TorchTPU or SGLang-TorchTPU, which were not run. Do not put the July v6e-1 numbers (B) or the colab-jax numbers (C) beside notebook 03's as ratios: they come from different chips, dates and checkpoints.

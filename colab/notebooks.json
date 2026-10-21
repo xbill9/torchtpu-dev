@@ -12,6 +12,11 @@
       "title": "Gemma 4 E2B on TorchTPU: loading a QAT repack, and the ways to run it",
       "accelerator": "TPU",
       "tpu": "v5e1"
+    },
+    "03_e2b_jax_vs_torchtpu.py": {
+      "title": "Gemma 4 E2B on one v5e chip: JAX against TorchTPU",
+      "accelerator": "TPU",
+      "tpu": "v5e1"
     }
   },
   "authors": [
