@@ -26,4 +26,6 @@ Open Claude Code inside the rig directory. Its `CLAUDE.md`, skill and `make` tar
 
 #### Links
 
+[DRAFTERS.md](DRAFTERS.md) covers Google's Gemma 4 MTP drafters, bf16 and QAT, and which serving paths here can use them.
+
 [RESOURCES.md](RESOURCES.md) collects the TorchTPU announcements, docs, recipes, containers and source repositories.
