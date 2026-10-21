@@ -15,7 +15,7 @@ from typing import Annotated, Literal, Optional
 
 import httpx
 from google.cloud import secretmanager
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from openai import AsyncOpenAI
 from pydantic import Field
@@ -39,7 +39,7 @@ logger = logging.getLogger(RIG_NAME)
 # directory name; MCP_SERVER_NAME overrides it, and project-setup.sh passes the
 # key it registered.
 MCP_SERVER_NAME = os.getenv("MCP_SERVER_NAME", RIG_NAME)
-mcp = FastMCP(MCP_SERVER_NAME)
+mcp = MCPServer(MCP_SERVER_NAME)
 
 # Annotation presets — hints that let clients (e.g. permission layers) auto-allow
 # reads and require confirmation before destructive calls.
@@ -104,7 +104,9 @@ REGION = os.getenv("GOOGLE_CLOUD_REGION", "us-west4")
 # QAT w4a16 by default: bf16 12B is ~24GB of weights and does not fit the 16GB
 # HBM of a single v5e chip; the compressed-tensors checkpoint is ~7GB and does.
 MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-12B-it-qat-w4a16-ct")
-HF_SECRET_ID = "hf-token"
+# Secret Manager secret holding the Hugging Face token. The startup script fetches it by
+# id at boot, so a rotated or per-project secret only needs this to change.
+HF_SECRET_ID = os.getenv("HF_SECRET_ID", "hf-token")
 ACCELERATOR_TYPE = os.getenv("ACCELERATOR_TYPE", "v5e-1")
 TENSOR_PARALLEL_SIZE = int(os.getenv("TENSOR_PARALLEL_SIZE", "1"))
 # tpu_openai_server.py serving parameters (see the SERVE_SEQ note in tpu.env).
