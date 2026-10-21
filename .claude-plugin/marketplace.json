@@ -1,15 +1,25 @@
 {
-  "name": "tpu-pytorch-v5e1-12b",
-  "description": "Claude Code plugins for Google Cloud TPU DevOps: the tpu-management skill and tpu-devops MCP server for Gemma 4 vLLM serving on TPU VMs.",
+  "name": "torchtpu-dev",
+  "description": "Claude Code plugins for TorchTPU (native PyTorch on Cloud TPU) serving rigs: one management skill and one MCP server per rig, both named after the rig directory.",
   "owner": {
     "name": "xbill9",
     "url": "https://github.com/xbill9"
   },
   "plugins": [
     {
-      "name": "tpu-management",
-      "source": "./",
-      "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-devops MCP server."
+      "name": "tpu-pytorch-v5e1-12b-w4a16",
+      "source": "./tpu-pytorch-v5e1-12b-w4a16",
+      "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v5e1-12b-w4a16 MCP server."
+    },
+    {
+      "name": "tpu-pytorch-v6e1-12b-w4a16",
+      "source": "./tpu-pytorch-v6e1-12b-w4a16",
+      "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v6e1-12b-w4a16 MCP server."
+    },
+    {
+      "name": "tpu-pytorch-v5e4-12b-w4a16",
+      "source": "./tpu-pytorch-v5e4-12b-w4a16",
+      "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v5e4-12b-w4a16 MCP server."
     }
   ]
 }
