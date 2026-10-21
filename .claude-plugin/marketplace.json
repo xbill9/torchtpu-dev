@@ -12,6 +12,16 @@
       "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v5e1-12b-w4a16 MCP server."
     },
     {
+      "name": "tpu-pytorch-v5e1-2b",
+      "source": "./tpu-pytorch-v5e1-2b",
+      "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v5e1-2b MCP server."
+    },
+    {
+      "name": "tpu-pytorch-v5e1-2b-w4a16",
+      "source": "./tpu-pytorch-v5e1-2b-w4a16",
+      "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v5e1-2b-w4a16 MCP server."
+    },
+    {
       "name": "tpu-pytorch-v6e1-12b-w4a16",
       "source": "./tpu-pytorch-v6e1-12b-w4a16",
       "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v6e1-12b-w4a16 MCP server."

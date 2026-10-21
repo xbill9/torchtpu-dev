@@ -5,9 +5,11 @@ Gemma 4 serving rigs for TorchTPU (native PyTorch on Cloud TPU), one directory p
 | Directory | Hardware | Model | Status |
 | --- | --- | --- | --- |
 | [`tpu-pytorch-v5e1-12b-w4a16`](tpu-pytorch-v5e1-12b-w4a16/) | TPU v5e-1 | `google/gemma-4-12B-it-qat-w4a16-ct` | The original rig; benchmark runs and articles live here |
-| [`tpu-pytorch-v6e1-12b-w4a16`](tpu-pytorch-v6e1-12b-w4a16/) | TPU v6e-1 | same | Fork, not yet provisioned |
-| [`tpu-pytorch-v5e4-12b-w4a16`](tpu-pytorch-v5e4-12b-w4a16/) | TPU v5e-4 | same | Fork, not yet provisioned; serves from one chip |
-| [`colab`](colab/) | Colab TPU runtime | same | Serving code only, not yet run |
+| [`tpu-pytorch-v5e1-2b`](tpu-pytorch-v5e1-2b/) | TPU v5e-1 | `google/gemma-4-E2B-it` | Fork, not yet provisioned |
+| [`tpu-pytorch-v5e1-2b-w4a16`](tpu-pytorch-v5e1-2b-w4a16/) | TPU v5e-1 | `google/gemma-4-E2B-it-qat-w4a16-ct` | Fork, not yet provisioned |
+| [`tpu-pytorch-v6e1-12b-w4a16`](tpu-pytorch-v6e1-12b-w4a16/) | TPU v6e-1 | `google/gemma-4-12B-it-qat-w4a16-ct` | Fork, not yet provisioned |
+| [`tpu-pytorch-v5e4-12b-w4a16`](tpu-pytorch-v5e4-12b-w4a16/) | TPU v5e-4 | `google/gemma-4-12B-it-qat-w4a16-ct` | Fork, not yet provisioned; serves from one chip |
+| [`colab`](colab/) | Colab TPU runtime | `google/gemma-4-12B-it-qat-w4a16-ct` | Serving code only, not yet run |
 
 Rig names follow `<platform>-<runtime>-<hardware>-<model>-<encoding>`. The name describes the rig; the values that matter (`MODEL_NAME`, `ACCELERATOR_TYPE`, `TENSOR_PARALLEL_SIZE`, zone) live in each rig's `tpu.env`.
 
