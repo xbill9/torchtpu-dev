@@ -146,6 +146,7 @@ When deploying to Google Cloud or Hugging Face, secure credentials using:
 - [SKILL.md](.claude/skills/tpu-management/SKILL.md) — the skill itself: lifecycle, tool catalog, required vLLM flags, field notes, cautions
 - [GEMINI.md](GEMINI.md) — Gemini CLI integration via a LiteLLM proxy pointed at the self-hosted Gemma 4 TPU endpoint
 - `references/tpu-guide.md` — TPU getting started guide: flex-start zones, quotas, troubleshooting
+- [RESOURCES.md](RESOURCES.md) — TorchTPU links: announcements, docs, recipes, containers, source repos
 
 ## Credits
 
