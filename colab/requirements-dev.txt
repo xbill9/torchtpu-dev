@@ -1,0 +1,18 @@
+# Authoring and build toolchain. None of this is needed to *run* the notebooks
+# in Colab -- it is what turns src/*.py into notebooks/*.ipynb and verifies them.
+jupytext>=1.16
+nbformat>=5.10
+ruff>=0.6
+
+# google-colab-cli 0.6.0 calls `jupyter_kernel_client.KernelClient`, but it
+# declares that dependency unpinned and 1.0.0 renamed the class to
+# `JupyterKernelClient`. A fresh install therefore resolves to 1.0.2 and every
+# `colab exec` dies with:
+#
+#     AttributeError: module 'jupyter_kernel_client' has no attribute 'KernelClient'
+#
+# Provisioning still works, so the failure only shows up once you try to run a
+# notebook. 0.15.0 is the last release with the old name. Verified working
+# 2026-09-20 against colab-cli 0.6.0 on a v5e-1. Re-test before unpinning.
+google-colab-cli>=0.6.0
+jupyter-kernel-client==0.15.0

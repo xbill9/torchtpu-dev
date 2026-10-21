@@ -1,0 +1,15 @@
+{
+  "repo": "xbill9/torchtpu-dev",
+  "branch": "main",
+  "path": "colab/",
+  "notebooks": {
+    "01_torchtpu_execution_modes.py": {
+      "title": "TorchTPU on a Colab v5e-1: eager, defer-and-fuse, and torch.compile",
+      "accelerator": "TPU",
+      "tpu": "v5e1"
+    }
+  },
+  "authors": [
+    "William McLean"
+  ]
+}

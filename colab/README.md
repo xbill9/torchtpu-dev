@@ -1,10 +1,30 @@
 # colab
 
-TorchTPU serving code for a Colab TPU runtime. This directory sits outside the rig naming scheme: Colab is a runtime you attach to, not capacity you provision with `gcloud`, so none of the MCP server, skill, or provisioning tooling from the rig directories applies here.
+Colab notebooks for TorchTPU on a v5e-1, plus the serving code they draw on. This directory sits outside the rig naming scheme: Colab is a runtime you attach to, not capacity you provision with `gcloud`, so none of the MCP server, skill, or provisioning tooling from the rig directories applies here.
 
-Forked from [`tpu-pytorch-v5e1-12b-w4a16`](../tpu-pytorch-v5e1-12b-w4a16/) on 2026-10-21. Nothing in this directory has been run in Colab yet.
+Open a notebook in Colab, pick **Runtime → Change runtime type → v5e-1 TPU**, then **Runtime → Run all**.
 
-#### What is here
+| Notebook | What it teaches | Token? | Status |
+| --- | --- | --- | --- |
+| [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xbill9/torchtpu-dev/blob/main/colab/notebooks/01_torchtpu_execution_modes.ipynb) [`01_torchtpu_execution_modes`](notebooks/01_torchtpu_execution_modes.ipynb) | TorchTPU's three execution modes (strict eager, defer-and-fuse, `torch.compile`), tiny-op dispatch cost, static shapes and buckets, and the cost of `.item()`, measured on synthetic tensors | No | Verified on a Colab v5e-1, 2026-10-21 (`runs/2026-10-21/`) |
+
+#### Authoring model
+
+The layout and tooling follow [`xbill9/colab-jax`](https://github.com/xbill9/colab-jax). **Notebooks are build artifacts: edit `src/*.py`, never `notebooks/*.ipynb`.** Sources are [jupytext](https://jupytext.readthedocs.io) `py:percent` files. The build prepends the Apache-2.0 cell and the Colab badge and sets `metadata.accelerator = "TPU"`. The `.ipynb` files are committed because Colab serves them from GitHub, and `make check` fails if they have drifted from their sources.
+
+```bash
+make setup     # pip install -r requirements-dev.txt: jupytext, nbformat, google-colab-cli
+make build     # src/*.py -> notebooks/*.ipynb
+make check     # fail if committed notebooks are stale
+make verify    # run every notebook on a real Colab v5e-1; fail on any error
+make sessions  # list live Colab runtimes (these cost compute units)
+```
+
+`make verify` provisions real hardware through the [Colab CLI](https://github.com/googlecolab/google-colab-cli) and files each executed copy under `runs/<date>/` as evidence. It needs a user credential with the `colaboratory` scope; see the colab-jax README for both auth routes and for why a timed-out `colab new` must never be retried.
+
+#### Serving code
+
+The `tpu_*.py` files are copies of the rigs' serving code, forked from [`tpu-pytorch-v5e1-12b-w4a16`](../tpu-pytorch-v5e1-12b-w4a16/) on 2026-10-21. The rig directories keep the authoritative copies; when one of these files changes there, copy it here.
 
 | File | Role |
 | --- | --- |
@@ -13,9 +33,3 @@ Forked from [`tpu-pytorch-v5e1-12b-w4a16`](../tpu-pytorch-v5e1-12b-w4a16/) on 20
 | `tpu_server.py` | OpenAI-compatible FastAPI server over `TPUEngine` |
 | `tpu_openai_server.py` | Static-shape decode server (the one the TPU VM rigs run) |
 | `tpu_generate.py` | One-shot generation from a Hugging Face causal LM |
-
-The rig directories keep the authoritative copies. When one of these files changes there, copy it here.
-
-#### Model
-
-Same checkpoint as the parent rig: `google/gemma-4-12B-it-qat-w4a16-ct` (~7 GB of weights).

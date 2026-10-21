@@ -1,0 +1,31 @@
+# Copied from ~/colab-jax/ruff.toml, itself adapted from ~/gemma4-dev/ruff.toml.
+
+target-version = "py313"
+line-length = 120
+
+# Generated artifacts. `notebooks/` and `runs/` matter here in a way they do not
+# in the rigs: **ruff lints .ipynb files by default**, so without these excludes
+# it would lint the build output and the executed copies rather than the sources
+# that produce them, and report findings on lines nobody edits.
+extend-exclude = [
+    "notebooks",
+    "runs",
+]
+
+[lint]
+# Pins ruff's current default select explicitly, so a ruff upgrade cannot
+# silently change what this repo lints. Deliberately not wider than the
+# defaults -- see the note in ~/gemma4-dev/ruff.toml about "I" and "B".
+select = ["E4", "E7", "E9", "F"]
+
+# Line length is enforced by the formatter, not the linter.
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Notebook sources are cells, not modules. A cell importing what it needs, where
+# it needs it, is correct for a tutorial -- the reader meets `import statistics`
+# next to the code that uses it, not in a preamble fifty cells earlier.
+"src/*.py" = ["E402"]
+
+[format]
+quote-style = "double"

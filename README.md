@@ -9,7 +9,7 @@ Gemma 4 serving rigs for TorchTPU (native PyTorch on Cloud TPU), one directory p
 | [`tpu-pytorch-v5e1-2b-w4a16`](tpu-pytorch-v5e1-2b-w4a16/) | TPU v5e-1 | `google/gemma-4-E2B-it-qat-w4a16-ct` | Fork, not yet provisioned |
 | [`tpu-pytorch-v6e1-12b-w4a16`](tpu-pytorch-v6e1-12b-w4a16/) | TPU v6e-1 | `google/gemma-4-12B-it-qat-w4a16-ct` | Fork, not yet provisioned |
 | [`tpu-pytorch-v5e4-12b-w4a16`](tpu-pytorch-v5e4-12b-w4a16/) | TPU v5e-4 | `google/gemma-4-12B-it-qat-w4a16-ct` | Fork, not yet provisioned; serves from one chip |
-| [`colab`](colab/) | Colab TPU runtime | `google/gemma-4-12B-it-qat-w4a16-ct` | Serving code only, not yet run |
+| [`colab`](colab/) | Colab v5e-1 runtime | synthetic tensors (notebook 01) | Notebook 01 on TorchTPU execution modes, verified on a Colab v5e-1; plus serving code |
 
 Rig names follow `<platform>-<runtime>-<hardware>-<model>-<encoding>`. The name describes the rig; the values that matter (`MODEL_NAME`, `ACCELERATOR_TYPE`, `TENSOR_PARALLEL_SIZE`, zone) live in each rig's `tpu.env`.
 

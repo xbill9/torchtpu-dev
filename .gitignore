@@ -54,3 +54,7 @@ benchmarks/runs/2026-08-02-torchtpu-e2b-v6e1-openai/
 
 # Local Claude Code settings (machine-specific)
 .claude/settings.local.json
+
+# colab exec drops the executed copy beside the input; verify_on_tpu.py moves it
+# into runs/, so one landing here means a run was interrupted.
+colab/notebooks/*_output.ipynb
