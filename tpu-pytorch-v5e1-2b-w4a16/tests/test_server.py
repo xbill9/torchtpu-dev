@@ -9,6 +9,7 @@ import asyncio
 import filecmp
 import subprocess
 import sys
+import re
 import unittest
 from pathlib import Path
 
@@ -64,8 +65,13 @@ class ToolCatalogTests(unittest.TestCase):
             ["v6e", "v5e", "v5p"],
         )
         for name in ("create_tpu_vm_instance", "find_tpu_vm"):
-            workload = self.tools[name].input_schema["properties"]["workload"]
-            self.assertEqual(workload["enum"], ["vllm", "pytorch"], name)
+            serve = self.tools[name].input_schema["properties"]["serve"]
+            self.assertEqual((serve["type"], serve["default"]), ("boolean", True), name)
+
+    def test_help_names_only_registered_tools(self):
+        help_text = run(server.get_help())
+        named = set(re.findall(r"\*\*`([a-z][a-z0-9_]+)`\*\*", help_text))
+        self.assertEqual(named - set(self.tools), set())
 
     def test_log_tails_are_bounded(self):
         for name in ("get_vllm_docker_logs", "get_tpu_system_logs", "get_tpu_vm_serial_log"):
@@ -96,9 +102,14 @@ class HelperTests(unittest.TestCase):
         self.assertTrue(run(server.estimate_deployment_cost(topology="0x4")).startswith("❌"))
 
     def test_min_chips_for_model(self):
-        self.assertEqual(server._min_chips_for_model("google/gemma-4-31B-it"), 4)
-        self.assertEqual(server._min_chips_for_model("google/gemma-4-12B-it"), 1)
-        self.assertEqual(server._min_chips_for_model("google/gemma-4-E2B-it"), 1)
+        # v5e: 16GB per chip
+        self.assertEqual(server._min_chips_for_model("google/gemma-4-31B-it", "v5e-8"), 8)
+        self.assertEqual(server._min_chips_for_model("google/gemma-4-26B-it", "v5litepod-8"), 8)
+        self.assertEqual(server._min_chips_for_model("google/gemma-4-12B-it", "v5e-1"), 2)
+        # v6e: 32GB per chip
+        self.assertEqual(server._min_chips_for_model("google/gemma-4-31B-it", "v6e-8"), 4)
+        self.assertEqual(server._min_chips_for_model("google/gemma-4-12B-it", "v6e-1"), 1)
+        self.assertEqual(server._min_chips_for_model("google/gemma-4-E2B-it", "v5e-1"), 1)
         # Quantized checkpoints fit on a single chip regardless of size
         self.assertEqual(server._min_chips_for_model("google/gemma-4-26B-it-qat-q4_0"), 1)
         self.assertEqual(server._min_chips_for_model("google/gemma-4-31B-it-int4"), 1)

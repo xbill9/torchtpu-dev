@@ -30,7 +30,8 @@ class TestTPUCompilerOptionA(unittest.TestCase):
         validate_tpu_inputs(unaligned_tensor)
 
     def test_compile_for_tpu_staging(self):
-        model = SimpleMLP().eval()
+        # Weights in the same dtype as the input, as the served models are.
+        model = SimpleMLP().to(torch.bfloat16).eval()
         compiled_forward = compile_for_tpu(model.forward, force_staging=True)
 
         x = torch.randn(4, 128, dtype=torch.bfloat16)

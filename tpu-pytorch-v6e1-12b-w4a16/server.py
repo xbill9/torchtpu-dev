@@ -161,7 +161,7 @@ def _qr_accelerator_type(accelerator: str = "") -> str:
 # PyTorch TPU backend install config. Deliberately has NO defaults: the backend
 # packages and their index are not publicly distributable, so the package name,
 # the pip index host, and the wheel-mirror bucket are supplied by the operator
-# at deploy time and never committed here. `workload="pytorch"` aborts with an
+# at deploy time and never committed here. Creating a TPU VM aborts with an
 # explicit message when TPU_BACKEND_PIP_SPEC / TPU_BACKEND_INDEX are unset.
 #
 # Pin the CPU torch build in TPU_BACKEND_PIP_SPEC (e.g. "<pkg> torch==2.13.0+cpu"):
@@ -643,7 +643,7 @@ async def _create_queued_resource(
         accel_chips = int(ACCELERATOR_TYPE.rsplit("-", 1)[-1])
     except ValueError:
         accel_chips = None
-    min_chips = _min_chips_for_model(selected_model)
+    min_chips = _min_chips_for_model(selected_model, ACCELERATOR_TYPE)
     if accel_chips is not None and accel_chips < min_chips:
         return (
             f"❌ `{selected_model}` needs ~{min_chips} chips but `{ACCELERATOR_TYPE}` has {accel_chips} — "
@@ -820,22 +820,31 @@ _GCE_IMAGE_FLAGS = [
 _GCE_TPU_FILTER = "machineType~'ct6e|ct5p|ct5lp'"
 
 
-def _min_chips_for_model(model: str) -> int:
+# HBM per chip by TPU family, for the chip-floor check below.
+_HBM_GB_PER_CHIP = {"v5e": 16, "v5litepod": 16, "v6e": 32, "v5p": 95}
+# bf16 weight size of the larger Gemma 4 checkpoints: 2 bytes per parameter.
+_BF16_WEIGHTS_GB = (("31B", 62), ("26B", 52), ("12B", 24))
+
+
+def _min_chips_for_model(model: str, accelerator: str = "") -> int:
     """Rough single-host chip floor for a bf16 checkpoint. Prevents the expensive
     failure mode of a big model on a small accelerator: VM boot + install +
     ~10 min of weight loading before an inevitable OOM.
 
-    Sized against a v5e chip's 16GB HBM (a v6e chip has 32GB), because that is
-    this rig's target and the tighter of the two — bf16 12B alone is ~24GB of
-    weights, so it needs 2 chips before any KV cache. Quantized variants
+    Sized against the HBM of the target accelerator's family (a v5e chip has 16GB,
+    a v6e chip 32GB), so bf16 12B needs 2 v5e chips but fits one v6e chip. The
+    weights get 25% headroom for KV cache and activations, and the count rounds up
+    to a single-host slice size (1, 2, 4, 8). Quantized variants
     (QAT/int4/AWQ/GPTQ/FP8) are ~4x smaller and always fit one chip."""
     lowered = model.lower()
     if any(q in lowered for q in ("qat", "int4", "q4", "awq", "gptq", "fp8")):
         return 1
-    for marker, chips in (("31B", 8), ("26B", 8), ("12B", 2)):
+    family = (accelerator or ACCELERATOR_TYPE).lower().split("-")[0]
+    hbm = _HBM_GB_PER_CHIP.get(family, 16)
+    for marker, weights_gb in _BF16_WEIGHTS_GB:
         if marker in model:
-            return chips
-    return 1  # E2B/E4B and other small checkpoints fit a single v5e chip
+            return next((n for n in (1, 2, 4, 8) if n * hbm >= weights_gb * 1.25), 8)
+    return 1  # E2B/E4B and other small checkpoints fit a single chip
 
 
 @mcp.tool(title="Create flex-start TPU VM", annotations=WRITE)
@@ -869,7 +878,7 @@ async def create_tpu_vm_instance(
 
     selected_model = model_name or MODEL_NAME
     if serve:
-        min_chips = _min_chips_for_model(selected_model)
+        min_chips = _min_chips_for_model(selected_model, accelerator)
         if chips < min_chips:
             return (
                 f"❌ `{selected_model}` needs ~{min_chips} chips but `{accelerator}` has {chips} — "
@@ -1691,7 +1700,7 @@ async def get_system_status() -> str:
     elif "RUNNING" in vms_str or "ACTIVE" in resources_str:
         next_step = (
             "Capacity is up but serving isn't reachable — check `get_tpu_vm_serial_log` / "
-            "`wait_for_vllm_ready` (GCE VM) or `manage_vllm_docker` with action='status'."
+            "`wait_for_serving_ready` (GCE VM) or `manage_vllm_docker` with action='status'."
         )
     else:
         next_step = "Call `create_tpu_vm_instance` (or `find_tpu_vm` to sweep zones) to provision infrastructure."
@@ -2136,7 +2145,7 @@ async def get_help() -> str:
         f"  - *Current Value:* `{ACCELERATOR_TYPE}`\n"
         f"- **`TENSOR_PARALLEL_SIZE`**: Tensor parallel size for serving.\n"
         f"  - *Current Value:* `{TENSOR_PARALLEL_SIZE}`\n"
-        f"- **`TPU_BACKEND_PIP_SPEC`**: Pip packages installed by workload='pytorch' VMs "
+        f"- **`TPU_BACKEND_PIP_SPEC`**: Pip packages installed on every TPU VM this rig creates "
         "(the backend index pulls the matching CPU torch automatically — never add torch here).\n"
         f"  - *Current Value:* `{TPU_BACKEND_PIP_SPEC}`\n"
         f"- **`TPU_BACKEND_INDEX`**: Artifact Registry pip index for the backend (token spliced in at boot).\n"
@@ -2147,17 +2156,18 @@ async def get_help() -> str:
         f"  - *Current Value:* `{TPU_BACKEND_WHEELS_GCS}`\n"
         f"- **`TPU_BACKEND_PIP_EXTRAS`**: public-PyPI extras installed after the TPU stack (QAT kit).\n"
         f"  - *Current Value:* `{TPU_BACKEND_PIP_EXTRAS}`\n\n"
-        "A Hugging Face token must exist as Secret Manager secret `hf-token` "
-        "(save one with `save_hf_token`) before vLLM resource creation "
-        "(workload='pytorch' VMs don't need it).\n\n"
+        f"Gated checkpoints need a Hugging Face token in Secret Manager secret `{HF_SECRET_ID}` "
+        "(save one with `save_hf_token`); tpu_openai_server.py reads it at startup and "
+        "falls back to public weights without it.\n\n"
         "---\n\n"
         "### 🧰 Available MCP Tools\n\n"
         "#### 🐳 Capacity & Lifecycle — GCE flex-start TPU VMs (recommended for v6e/v5p)\n"
-        "- **`create_tpu_vm_instance`**: Creates a flex-start TPU VM via GCE; workload='vllm' auto-starts "
-        "serving, workload='pytorch' installs the PyTorch/the PyTorch TPU backend stack instead.\n"
+        "- **`create_tpu_vm_instance`**: Creates a flex-start TPU VM via GCE and installs the PyTorch TPU "
+        "stack; serve=True (default) also starts tpu_openai_server.py, serve=False leaves a bare torch node.\n"
         "- **`find_tpu_vm`**: Sweeps zones attempting flex-start creation until one grants capacity "
-        "(same workload choice).\n"
-        "- **`wait_for_vllm_ready`**: Polls health endpoint + serial marker until serving is up (~10 min loads).\n"
+        "(same serve choice).\n"
+        "- **`wait_for_serving_ready`**: Polls /health, then the serial marker, until tpu_openai_server.py "
+        "answers (10-15 min for weights plus first compile).\n"
         "- **`wait_for_pytorch_ready`**: Polls the serial marker until the PyTorch TPU backend environment is ready.\n"
         "- **`verify_pytorch_tpu`**: Reruns the PyTorch TPU backend smoke test (torch.compile backend=\"tpu\") over SSH.\n"
         "- **`update_tpu`**: In-place upgrade of the backend nightly (or a pinned version) + smoke test.\n"
@@ -2178,7 +2188,7 @@ async def get_help() -> str:
         "- **`manage_vllm_docker`**: start/stop/restart/status/log/rm for the vLLM container "
         "(queued node by default; GCE VM via instance_name).\n"
         "- **`get_vllm_endpoint`**: Active vLLM service URL.\n"
-        "- **`get_vllm_deployment_config`**: gcloud one-liner for a single-host TPU vLLM deployment.\n"
+        "- **`get_deployment_config`**: The gcloud flag set `create_tpu_vm_instance` runs, for a runbook.\n"
         "- **`save_hf_token`**: Securely saves a Hugging Face API token to Secret Manager.\n\n"
         "#### 📊 Monitoring & Logs\n"
         "- **`get_system_status`**: High-level status dashboard of TPU node health and vLLM service.\n"
