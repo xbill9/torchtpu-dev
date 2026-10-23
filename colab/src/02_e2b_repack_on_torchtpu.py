@@ -400,8 +400,8 @@ for loader, p in placements.items():
 #
 # 1. **Strict eager:** Hugging Face `generate`, unchanged.
 # 2. **Defer-and-fuse:** the same, with `TORCH_TPU_DEFER_AND_FUSE=1`.
-# 3. **Weights kept 4-bit:** `generate` with the weights left packed in memory and unpacked inside
-#    each forward pass.
+# 3. **Weights kept 4-bit:** `generate` with the weights loaded packed. Transformers unpacks them to
+#    bf16 at the first forward pass and keeps the result (measured in notebook 04, Section 2).
 # 4. **Compiled buffer:** one fixed 256-token buffer and one compiled step that rereads it every
 #    token, the design of `tpu_openai_server.py`.
 # 5. **Static cache:** `generate` with Hugging Face's fixed-size KV cache and the forward pass under
@@ -438,7 +438,8 @@ for way in WAYS:
 #   every fused group is a new shape to compile. Once compiled, it ran ahead. The July note of 0.5
 #   tokens per second did not reproduce on this TorchTPU release.
 # * **Keeping the weights 4-bit saved no memory.** The TPU held the same 9.85 GB as with the weights
-#   unpacked, so on this path the packed format brings only a smaller download.
+#   unpacked, so on this path the packed format brings only a smaller download. Notebook 04 shows
+#   why: the first forward pass unpacks every layer to bf16 and keeps it.
 # * **The static-cache way failed** with a scalar tensor on the CPU, the same failure the July notes
 #   recorded for `generate` under `torch.compile`.
 #
