@@ -22,6 +22,11 @@
       "title": "Gemma 4 E2B on TorchTPU: one compiled decode step, and the speed-up",
       "accelerator": "TPU",
       "tpu": "v5e1"
+    },
+    "05_e2b_ring_cache.py": {
+      "title": "Gemma 4 E2B on TorchTPU: a ring cache for the full 131k context",
+      "accelerator": "TPU",
+      "tpu": "v5e1"
     }
   },
   "authors": [
