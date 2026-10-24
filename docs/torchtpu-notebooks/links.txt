@@ -6,4 +6,4 @@ substack   = https://xbill9.substack.com/p/pytorch-on-tpu-hands-on-with-colab
 builder    = SKIP
 repo       = https://github.com/xbill9/torchtpu-dev/tree/main/colab
 devto-aws  = SKIP
-linkedin   = PENDING
+linkedin   = https://www.linkedin.com/feed/update/urn:li:activity:7519595515718721538/
