@@ -14,13 +14,13 @@ PyTorch on TPU: Hands On With Colab
 Five Colab notebooks take Gemma 4 E2B on one v5e chip from 5 tokens per second under Hugging Face generate to 50 with one compiled decode step, and to the full 131,072-token context with a ring cache, against a JAX engine on the same chip.
 
 ## Tags
-pytorch, tpu, gemma, googlecloud
+AI - TorchTPU, AI - TPU, AI - Gemma, AI - Colab (Advocu's own tags; the article's tags are not in its list)
 
 ## How many people read your content?
 3000 (standing estimate, not a counter reading)
 
 ## Date published
-2026-10-24
+2026-10-23 (New York date; dev.to's published_at is 2026-10-24T03:05Z)
 
 ## Link to Content
 https://dev.to/gde/pytorch-on-tpu-hands-on-with-colab-5b5g
@@ -30,3 +30,5 @@ advocu-devto-torchtpu-notebooks-cover.webp (1376x578 WebP, 2 KB, from devto-cove
 
 ---
 Save as draft rather than submitting, and read it back before you do.
+
+Saved as an Advocu draft on 2026-10-23 with these fields and the WebP cover; not submitted.
