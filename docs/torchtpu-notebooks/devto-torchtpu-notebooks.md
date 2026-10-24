@@ -1,5 +1,5 @@
 ---
-title: "PyTorch on a TPU: Gemma 4 E2B on TorchTPU, From 14.8x Behind JAX to 2.6x"
+title: "PyTorch on TPU: Hands On With Colab"
 published: false
 description: "Five Colab notebooks take Gemma 4 E2B on one v5e chip from 5 tokens per second under Hugging Face generate to 50 with one compiled decode step, and to the full 131,072-token context with a ring cache, against a JAX engine on the same chip."
 tags: pytorch, tpu, gemma, googlecloud
