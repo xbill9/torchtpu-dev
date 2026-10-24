@@ -1,0 +1,69 @@
+# outputs of colab/runs/2026-10-23/05_e2b_ring_cache_output.ipynb, extracted verbatim
+Python 3.13.16
+torch_tpu            0.2.0
+torch                2.14.1+cpu
+libtpu               0.0.50
+transformers         5.20.2
+compressed-tensors   0.19.0
+Downloading bytes:           |  0.00B
+Reconstructing (incomplete total...): |          |  0.00B /  0.00B
+Fetching 47 files:   0%|          | 0/47 [00:00<?, ?it/s]
+Downloading bytes:           |  0.00B
+Reconstructing (incomplete total...): |          |  0.00B /  0.00B
+Fetching 1 files:   0%|          | 0/1 [00:00<?, ?it/s]
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text: 6.56 GB
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4: 1.32 GB
+downloaded in 85 s
+short prompt: 19 tokens
+short      61 tokens,     1 records, target     1: same as the laptop run
+short    4081 tokens,   135 records, target    33: same as the laptop run
+short   32761 tokens,  1091 records, target   272: same as the laptop run
+deep    32761 tokens,  1091 records, target   272: same as the laptop run
+deep   130981 tokens,  4365 records, target  1091: same as the laptop run
+task script written: /content/ring_tasks.py
+static_short  finished in   77 s: ok
+ring_33k      finished in  143 s: ok
+ring_131k     finished in  184 s: ok
+
+full     layers:  3    33024 slots  head size 512
+sliding  layers: 12      768 slots  head size 256
+shared   layers: 20    reuses an earlier layer's  head size 
+sliding window: 512 positions
+cache for a 33,024-token context: 0.212 GB
+cache for a 131,328-token context: 0.816 GB
+way                            first call s   tok/s  streamed  graphs  breaks
+notebook 04 step, 256 slots                    47.8                 1       0
+ring, 33,024                           92.1    45.2      33.3       2       0
+ring, 131,328                          90.7    38.7      30.7       2       0
+ring, 33,024: first 64 of 64 tokens identical to notebook 04's step (the answer ends at token 56)
+ring, 131,328: first 64 of 64 tokens identical to notebook 04's step (the answer ends at token 56)
+ context   prompt  read s read tok/s  decode   answer  found  record  laptop answer  same
+   33024       61     0.1       1218    45.2   915965    yes       1         915965   yes
+   33024     4081     0.7       5978    45.2   610395    yes      33         610395   yes
+   33024    32761     5.0       6601    45.2   319550     no     723         319550   yes
+  131328    32761     9.9       3305    38.5   390185    yes     272         390185   yes
+  131328   130981    39.8       3288    38.1   567239     no      91         567239   yes
+graphs after every prompt: [2, 0] and [2, 0] (programs, breaks)
+ 3 layers of StaticLayer                 4352 slots
+12 layers of StaticSlidingWindowLayer     512 slots
+way                            after load GB with cache GB  peak GB
+notebook 04 step, 256 slots             6.44                  16.67
+ring, 33,024                            6.44          6.65    16.91
+ring, 131,328                           6.44          7.26    16.91
+claim                                                    expected        today
+layers with full slots / sliding rings / shared       3 / 12 / 20  3 / 12 / 20
+cache for a 131,328-token context, GB                     under 1         0.82
+compiled programs, ring cache                                   2            2
+graph breaks, ring cache                                        0            0
+short-prompt tokens identical to notebook 04             64 of 64     64 of 64
+ring decode, 33,024 over notebook 04 step             about 0.94x        0.94x
+130,981-token prompt read, s                             35 to 39           40
+answers the same as the laptop GPU                         5 of 5       5 of 5
+notebook 04's cache at 4,352: sliding-layer slots             512          512
+
+Versions:
+Prompts:
+Speed:
+Answers:
+Memory:
+Other findings:

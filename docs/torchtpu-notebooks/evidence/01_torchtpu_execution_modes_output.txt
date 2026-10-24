@@ -1,0 +1,58 @@
+# outputs of colab/runs/2026-10-21/01_torchtpu_execution_modes_output.ipynb, extracted verbatim
+Python 3.13.16
+torch_tpu  0.2.0
+torch      2.14.1+cpu
+libtpu     0.0.50
+device tpu:0   torch 2.14.1+cpu   first touch of the chip 0.9 s
+275 GFLOP per step
+
+mode      first call s   step ms  TFLOP/s       checksum
+eager             0.15      2.91     94.6          359.0
+fuse              2.69      1.68    163.2          359.0
+compile           3.00      1.91    143.6          359.0
+fuse vs eager: step 1.72x faster, checksum differs by 0.0e+00
+compile vs eager: step 1.52x faster, checksum differs by 0.0e+00
+mode       first call s   step ms  us per op     checksum
+eager              0.05     9.890       51.5    1972.6251
+blocking           0.11    36.371      189.4    1972.6251
+fuse               0.09     6.104       31.8    1972.6251
+compile            1.04     0.100        0.5    1972.6251
+blocking / eager step time: 3.68x
+fuse / eager step time: 0.62x
+compile / eager step time: 0.01x
+lengths: [100, 101, 102, 250]
+
+raw: 4 compiled graph(s)
+  first pass ms:  [341.2, 115.7, 116.7, 143.8]
+  second pass ms: [1.1, 1.0, 0.8, 0.8]
+
+bucketed: 2 compiled graph(s)
+  first pass ms:  [120.5, 1.0, 1.0, 143.7]
+  second pass ms: [0.9, 0.9, 0.8, 0.9]
+
+largest difference, padded vs raw: 0.00e+00
+mode   variant           ms per 20 steps     checksum
+eager  no_read                     20.26       137.23
+eager  item_each_step              27.06       137.23
+eager  read-back costs 1.34x
+
+fuse   no_read                     14.86       137.23
+fuse   item_each_step              24.13       137.23
+fuse   read-back costs 1.62x
+claim                                                                source      today
+strict eager has the fastest first call (matmul stack)                guide      eager
+torch.compile has the fastest warm step (matmul stack)                guide       fuse
+defer-and-fuse speedup over strict eager (tiny ops)              up to 1.5x      1.62x
+torch.compile speedup over strict eager (tiny ops)                              98.69x
+launch-blocking slowdown (tiny ops)                              debug only      3.68x
+compiled graphs, 4 raw lengths                                one per shape          4
+compiled graphs, same lengths in 128 buckets                 one per bucket          2
+padded result vs raw, max difference                                      0    0.0e+00
+cost of one .item() per step, defer-and-fuse                    graph break      1.62x
+
+Chip and versions:
+Modes (Section 2):
+Tiny ops (Section 3):
+Shapes (Section 4):
+Read-back (Section 5):
+Other findings:

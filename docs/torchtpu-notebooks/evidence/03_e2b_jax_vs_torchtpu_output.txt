@@ -1,0 +1,55 @@
+# outputs of colab/runs/2026-10-21/03_e2b_jax_vs_torchtpu_output.ipynb, extracted verbatim
+Python 3.13.16
+before: {'jax': '0.11.2', 'libtpu': '0.0.50', 'torch': '2.14.1+cpu', 'transformers': '5.20.1'}
+JAX matmul before: TPU v5 lite 16777216.0
+after:  {'jax': '0.11.2', 'libtpu': '0.0.50', 'torch': '2.14.1+cpu', 'torch_tpu': '0.2.0', 'compressed-tensors': '0.19.0'}
+JAX matmul after:  TPU v5 lite 16777216.0
+Downloading bytes:           |  0.00B
+Reconstructing (incomplete total...): |          |  0.00B /  0.00B
+Fetching 47 files:   0%|          | 0/47 [00:00<?, ?it/s]
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text: 6.56 GB of weights
+tpu-jax at 4b9f8e9
+prompt: 19 tokens
+task script written: /content/engine_tasks.py
+jax_w4a16     finished in   105 s: ok
+jax_bf16      finished in    60 s: ok
+torch_eager   finished in    77 s: ok
+torch_buffer  finished in    65 s: ok
+torch_fuse    finished in   743 s: ok
+jax_w4a16     first 64 of 64 tokens identical to jax_w4a16
+jax_bf16      first 64 of 64 tokens identical to jax_w4a16
+torch_eager   first 56 of 64 tokens identical to jax_w4a16
+torch_fuse    first 56 of 64 tokens identical to jax_w4a16
+torch_buffer  first 64 of 64 tokens identical to jax_w4a16
+
+The sky appears blue because of a phenomenon called Rayleigh scattering, where the Earth's atmosphere scatters shorter, blue wavelengths of sunlight more effectively than longer, red wavelengths. This scattered blue light is what reaches our eyes from all directions, making the sky look blue during the day.
+reference  compared        mean KL     max KL  same top token  max |logprob diff|
+jax_bf16   torch_eager    0.001073   0.008882         100.00%              0.8759
+jax_w4a16  torch_eager    0.001073   0.008882         100.00%              0.8759
+jax_w4a16  jax_bf16       0.000000   0.000000         100.00%              0.0000
+
+positions compared: 83
+engine         load s  first 64 s  warm 1 s  warm 64 s  decode tok/s  memory GB
+jax_w4a16         7.3       39.50     0.014      0.625         103.1       6.62
+jax_bf16         16.1       23.39     0.010      0.492         130.8       9.30
+torch_eager      21.2       20.98     0.203     13.531           4.7       9.87
+torch_fuse       42.8      658.66     0.127      7.268           8.8      11.91
+torch_buffer     20.0       11.57     0.167     10.113           6.3       9.83
+jax_w4a16: the engine's own timer says 104.6 tok/s
+jax_bf16: the engine's own timer says 132.6 tok/s
+jax_w4a16 / torch_fuse: 11.7x
+jax_bf16 / torch_fuse: 14.8x
+claim                                                  expected        today
+libtpu shared by both stacks                                yes          yes
+engines writing 64 of 64 tokens identical to JAX           most       3 of 5
+mean KL, JAX bf16 vs PyTorch eager                        small     0.001073
+  for scale: KL between two weight builds (colab-jax 02)      0.00021             
+same top token, JAX bf16 vs PyTorch eager                  100%      100.00%
+fastest decode                                              JAX     jax_bf16
+JAX 4-bit / best PyTorch decode                                        11.7x
+
+Versions:
+Tokens:
+Predictions:
+Speed:
+Other findings:

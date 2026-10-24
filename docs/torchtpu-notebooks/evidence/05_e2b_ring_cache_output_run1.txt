@@ -1,0 +1,68 @@
+# outputs of colab/runs/2026-10-23/05_e2b_ring_cache_output_run1.ipynb, extracted verbatim
+Python 3.13.16
+torch_tpu            0.2.0
+torch                2.14.1+cpu
+libtpu               0.0.50
+transformers         5.20.2
+compressed-tensors   0.19.0
+Downloading bytes:           |  0.00B
+Reconstructing (incomplete total...): |          |  0.00B /  0.00B
+Fetching 47 files:   0%|          | 0/47 [00:00<?, ?it/s]
+Downloading bytes:           |  0.00B
+Reconstructing (incomplete total...): |          |  0.00B /  0.00B
+Fetching 1 files:   0%|          | 0/1 [00:00<?, ?it/s]
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text: 6.56 GB
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4: 1.32 GB
+downloaded in 84 s
+short prompt: 19 tokens
+short      61 tokens,     1 records, target     1: same as the laptop run
+short    4081 tokens,   135 records, target    33: same as the laptop run
+short   32761 tokens,  1091 records, target   272: same as the laptop run
+deep    32761 tokens,  1091 records, target   272: same as the laptop run
+deep   130981 tokens,  4365 records, target  1091: same as the laptop run
+task script written: /content/ring_tasks.py
+static_short  finished in   80 s: ok
+ring_33k      finished in  151 s: ok
+ring_131k     finished in  184 s: ok
+
+full     layers:  1    33024 slots  head size 512
+sliding  layers:  1      768 slots  head size 256
+shared   layers: 20    reuses an earlier layer's  head size 
+sliding window: 512 positions
+cache for a 33,024-token context: 0.212 GB
+cache for a 131,328-token context: 0.816 GB
+way                            first call s   tok/s  streamed  graphs  breaks
+notebook 04 step, 256 slots                    47.8                 1       0
+ring, 33,024                           98.3    45.2      32.8       2       0
+ring, 131,328                          94.8    38.7      28.7       2       0
+ring, 33,024: first 64 of 64 tokens identical to notebook 04's step (the answer ends at token 56)
+ring, 131,328: first 64 of 64 tokens identical to notebook 04's step (the answer ends at token 56)
+ context   prompt  read s read tok/s  decode   answer  found  record  laptop answer  same
+   33024       61     0.0       1256    45.2   915965    yes       1         915965   yes
+   33024     4081     0.7       6092    45.2   610395    yes      33         610395   yes
+   33024    32761     5.0       6618    45.1   319550     no     723         319550   yes
+  131328    32761     8.9       3692    38.6   390185    yes     272         390185   yes
+  131328   130981    35.5       3693    38.5   567239     no      91         567239   yes
+graphs after every prompt: [2, 0] and [2, 0] (programs, breaks)
+failed: RuntimeError: failed to copy buffer from device into host buffer -- the XLA compiler failed with: e0200: RuntimeUnexpectedCoreHalt: Program or fatal error occurred; computation may be invalid: (launch_id=0)Assertion args: 0x00000000 0x00000000 0x00000000 INTERNAL: Fatal error occurred during TPU execution. This indicates an infrastructure failure (hardware/network/power), a compiler bug, or a Pall
+way                            after load GB with cache GB  peak GB
+notebook 04 step, 256 slots             6.44                  16.67
+ring, 33,024                            6.44          6.65    16.91
+ring, 131,328                           6.44          7.26    16.91
+claim                                                    expected        today
+layers with full slots / sliding rings / shared       3 / 12 / 20   1 / 1 / 20
+cache for a 131,328-token context, GB                     under 1         0.82
+compiled programs, ring cache                                   2            2
+graph breaks, ring cache                                        0            0
+short-prompt tokens identical to notebook 04             64 of 64     64 of 64
+ring decode, 33,024 over notebook 04 step             about 0.95x        0.94x
+130,981-token prompt read, s                             about 39           35
+answers the same as the laptop GPU                         5 of 5       5 of 5
+notebook 04's cache at 4,352 slots                          fails        fails
+
+Versions:
+Prompts:
+Speed:
+Answers:
+Memory:
+Other findings:

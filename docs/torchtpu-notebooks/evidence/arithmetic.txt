@@ -1,0 +1,6 @@
+4-bit table over compiled step, run 1 (50.4 / 33.4): 1.51x = 151%
+4-bit table over compiled step, run 2 (50.2 / 31.3): 1.60x = 160%
+JAX bf16 over 4-bit-table step, run 1 (131.2 / 50.4): 2.60x = 260%
+JAX bf16 over 4-bit-table step, run 2 (132.9 / 50.2): 2.65x = 265%
+32,761-token read, 131,328 over 33,024 context, run 3 (3305 / 6601): 0.50x = 50%
+32,761-token read, 131,328 over 33,024 context, run 1 (3692 / 6618): 0.56x = 56%

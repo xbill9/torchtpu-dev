@@ -1,0 +1,46 @@
+# outputs of colab/runs/2026-10-23/05_e2b_ring_cache_output_run2.ipynb, extracted verbatim
+Python 3.13.16
+torch_tpu            0.2.0
+torch                2.14.1+cpu
+libtpu               0.0.50
+transformers         5.20.2
+compressed-tensors   0.19.0
+Downloading bytes:           |  0.00B
+Reconstructing (incomplete total...): |          |  0.00B /  0.00B
+Fetching 47 files:   0%|          | 0/47 [00:00<?, ?it/s]
+Downloading bytes:           |  0.00B
+Reconstructing (incomplete total...): |          |  0.00B /  0.00B
+Fetching 1 files:   0%|          | 0/1 [00:00<?, ?it/s]
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text: 6.56 GB
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4: 1.32 GB
+downloaded in 86 s
+short prompt: 19 tokens
+short      61 tokens,     1 records, target     1: same as the laptop run
+short    4081 tokens,   135 records, target    33: same as the laptop run
+short   32761 tokens,  1091 records, target   272: same as the laptop run
+deep    32761 tokens,  1091 records, target   272: same as the laptop run
+deep   130981 tokens,  4365 records, target  1091: same as the laptop run
+task script written: /content/ring_tasks.py
+static_short  finished in   80 s: ok
+ring_33k      finished in  149 s: ok
+ring_131k     finished in  186 s: ok
+
+full     layers:  3    33024 slots  head size 512
+sliding  layers: 12      768 slots  head size 256
+shared   layers: 20    reuses an earlier layer's  head size 
+sliding window: 512 positions
+cache for a 33,024-token context: 0.212 GB
+cache for a 131,328-token context: 0.816 GB
+way                            first call s   tok/s  streamed  graphs  breaks
+notebook 04 step, 256 slots                    47.9                 1       0
+ring, 33,024                           97.3    45.2      34.4       2       0
+ring, 131,328                          95.2    38.7      29.4       2       0
+ring, 33,024: first 64 of 64 tokens identical to notebook 04's step (the answer ends at token 56)
+ring, 131,328: first 64 of 64 tokens identical to notebook 04's step (the answer ends at token 56)
+ context   prompt  read s read tok/s  decode   answer  found  record  laptop answer  same
+   33024       61     0.0       1253    45.3   915965    yes       1         915965   yes
+   33024     4081     0.6       6400    45.1   610395    yes      33         610395   yes
+   33024    32761     5.0       6607    45.1   319550     no     723         319550   yes
+  131328    32761     9.0       3638    38.5   390185    yes     272         390185   yes
+  131328   130981    36.3       3605    38.1   567239     no      91         567239   yes
+graphs after every prompt: [2, 0] and [2, 0] (programs, breaks)
