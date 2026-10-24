@@ -1,8 +1,8 @@
 # Destination URLs for the LinkedIn, Slack and Google Chat posts. PENDING fails the
 # run on purpose: a post whose links do not resolve is worse than no post.
-devto-gde  = PENDING
-medium     = PENDING
-substack   = PENDING
+devto-gde  = https://dev.to/gde/pytorch-on-tpu-hands-on-with-colab-5b5g
+medium     = https://medium.com/@xbill999/pytorch-on-tpu-hands-on-with-colab-05f581b21eeb
+substack   = https://xbill9.substack.com/p/pytorch-on-tpu-hands-on-with-colab
 builder    = SKIP
 repo       = https://github.com/xbill9/torchtpu-dev/tree/main/colab
 devto-aws  = SKIP

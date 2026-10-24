@@ -9,7 +9,7 @@ What is in it:
 - 🟢 Every way writes the same 56-token answer; mean KL between JAX bf16 and PyTorch eager is 0.001073
 - 🟢 The ring cache holds the full context in 0.82 GB, reads a 130,981-token prompt in 35.5 to 39.8 s, and decodes at 38.6 to 38.7 tokens per second
 
-dev.to \(Google Developer Experts\): PENDING
-Medium: PENDING
-Substack: PENDING
+dev.to \(Google Developer Experts\): https://dev.to/gde/pytorch-on-tpu-hands-on-with-colab-5b5g
+Medium: https://medium.com/\@xbill999/pytorch-on-tpu-hands-on-with-colab-05f581b21eeb
+Substack: https://xbill9.substack.com/p/pytorch-on-tpu-hands-on-with-colab
 Source: https://github.com/xbill9/torchtpu-dev/tree/main/colab
