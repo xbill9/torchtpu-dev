@@ -10,7 +10,7 @@ This article provides a step by step guide to running Gemma 4 E2B, Google's quan
 
 https://github.com/xbill9/torchtpu-dev/tree/main/colab
 
-**One compiled decode step takes PyTorch from 5 to 50 tokens per second, and a ring cache takes it to the full context.** Same chip, same checkpoint, same 19-token prompt, 64 greedy tokens:
+**One compiled decode step takes PyTorch from 5 to 50 tokens per second, and a ring cache takes it to the full context.** Same chip, same checkpoint, same 19-token prompt, 64 greedy tokens (32 in notebook 02):
 
 | One Colab v5e-1 chip | Decode tok/s | Context | Notebook |
 | :--- | ---: | ---: | :---: |
@@ -21,7 +21,7 @@ https://github.com/xbill9/torchtpu-dev/tree/main/colab
 | Ring cache | **38.6 to 38.7** | **131,328 tokens** | 05 |
 | JAX engine, bf16 weights | 130.8 to 132.9 | short prompt | 03, 04 |
 
-JAX was 14.8x the best PyTorch way in notebook 03 and is 2.6x the compiled step with the 4-bit table in notebook 04. Every way in notebooks 03 to 05 writes the same 56-token answer.
+JAX was 14.8x the best PyTorch way in notebook 03 and is 2.6x the compiled step with the 4-bit table in notebook 04. On that prompt every way in notebooks 03 to 05 writes the same 56-token answer.
 
 ---
 
@@ -29,7 +29,7 @@ JAX was 14.8x the best PyTorch way in notebook 03 and is 2.6x the compiled step 
 
 TorchTPU (`torch_tpu`) is a PyTorch backend for TPUs: tensors live on a `tpu` device, and the same Python code runs eagerly, fused, or under `torch.compile`. The question for a PyTorch user is how much of the TPU a plain Transformers model gets, measured against a JAX engine that serves the same checkpoint on the same chip.
 
-The model is Gemma 4 E2B in the W4A16 repack `xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text`: Google's QAT 4-bit weights in the compressed-tensors format, every 4-bit value equal to Google's release. Its twin `-text-emb4` stores the vocabulary tables 4-bit as well. The JAX engine is `xbill9/tpu-jax` at commit `4b9f8e9`.
+The model is Gemma 4 E2B in the W4A16 repack `xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text`: Google's QAT 4-bit weights in the compressed-tensors format. Its twin `-text-emb4` stores the vocabulary tables 4-bit as well. The JAX engine is `xbill9/tpu-jax` at commit `4b9f8e9`.
 
 Every number below comes from an executed notebook in `colab/runs/`. Versions on the Colab image: `torch_tpu` 0.2.0, `torch` 2.14.1+cpu, `libtpu` 0.0.50, `jax` 0.11.2, `compressed-tensors` 0.19.0, Transformers 5.20.1 (notebooks 02 and 03) and 5.20.2 (04 and 05). Each way runs in a fresh Python process, so none inherits another's compiled programs.
 
