@@ -48,7 +48,7 @@
 # * **Section 4, long prompts.** Prompts of 61 to 130,981 tokens: reading speed, decode speed, and
 #   whether the model finds a record buried in the text, on the same prompts a laptop GPU and llama.cpp
 #   answered.
-# * **Section 5, notebook 04's cache past its window.** What happens when it is simply made longer.
+# * **Section 5, notebook 04's cache past its window.** Why it cannot simply be made longer.
 # * **Section 6, memory.** What the chip holds.
 #
 # ### The three rules used throughout
@@ -365,8 +365,9 @@ class RingEngine:
                     slots = cfg.sliding_window + CHUNK if kind == "sliding" else context
                     mod.ring = Ring(slots, mod.head_dim, cfg.sliding_window if kind == "sliding" else None)
                     self.rings.append(mod.ring)
-                    layout[kind] = {"slots": slots, "head_dim": mod.head_dim}
-                layout.setdefault(kind, {})["layers"] = layout.get(kind, {}).get("layers", 0) + 1
+                    layout.setdefault(kind, {}).update(slots=slots, head_dim=mod.head_dim)
+                entry = layout.setdefault(kind, {})
+                entry["layers"] = entry.get("layers", 0) + 1
                 mod.forward = ring_attention.__get__(mod)
         sync()
         self.info.update(layout=layout, sliding_window=cfg.sliding_window, hbm_rings_gb=hbm(),
@@ -451,7 +452,7 @@ def task_static(cache_len, prompt):
     for method in ("update", "get_seq_length", "get_mask_sizes"):
         setattr(cu.StaticSlidingWindowLayer, method, getattr(cu.StaticLayer, method))
     cache = StaticCache(config=model.config, max_cache_len=cache_len)
-    ids = torch.tensor([prompt["ids"] if isinstance(prompt, dict) else prompt], device="tpu")
+    ids = torch.tensor([prompt], device="tpu")
     tok = torch.zeros((1, 1), dtype=torch.long, device="tpu")
 
     def step():
@@ -480,9 +481,18 @@ def task_static(cache_len, prompt):
         tokens, read_s, decode_s = decode(NEW_TOKENS)
         info.setdefault("warm", []).append({"read_s": read_s, "decode_s": decode_s})
     info.update(tokens=tokens, graphs_after_short=graphs(), hbm_peak_gb=peak())
-    if isinstance(prompt, dict):
-        info.update(answer(tokens, prompt))
     return info
+
+
+def task_static_slots(cache_len):
+    """The slots Transformers' StaticCache gives each kind of layer; built on the host, nothing on the chip."""
+    import collections
+
+    from transformers import AutoConfig, StaticCache
+
+    cache = StaticCache(config=AutoConfig.from_pretrained(MODEL), max_cache_len=cache_len)
+    kinds = collections.Counter((type(layer).__name__, layer.max_cache_len) for layer in cache.layers)
+    return {"cache_len": cache_len, "kinds": [[name, slots, n] for (name, slots), n in sorted(kinds.items())]}
 
 
 if __name__ == "__main__":
@@ -490,7 +500,7 @@ if __name__ == "__main__":
         "static_short": lambda: task_static(256, PROMPT_SETS["sky"]),
         "ring_33k": lambda: task_ring(33024, "short"),
         "ring_131k": lambda: task_ring(131328, "deep"),
-        "static_4k": lambda: task_static(4352, PROMPT_SETS["short"][1]),
+        "static_slots": lambda: task_static_slots(4352),
     }
     try:
         result = tasks[TASK]()
@@ -551,7 +561,7 @@ for name, r in (("33,024-token", ring), ("131,328-token", big)):
 # %% [markdown]
 # **What you should see.** 3 full layers, 12 sliding layers with 768 slots (the 512-position window and
 # one 256-token piece) and 20 shared layers; full layers with a head size of 512 and sliding layers 256.
-# In a run on a Colab v5e-1 on 2026-10-23 the cache took 0.212 GB for a 33,024-token context and 0.816
+# In four runs on a Colab v5e-1 on 2026-10-23 the cache took 0.212 GB for a 33,024-token context and 0.816
 # GB for a 131,328-token one. Every full-length slot is two rows of 512 bf16 values in each of 3 layers,
 # 6 KB per token, so the full context costs less than a gigabyte on a 16 GB chip.
 
@@ -564,7 +574,8 @@ for name, r in (("33,024-token", ring), ("131,328-token", big)):
 #
 # **What we are testing.** Notebook 04's step and the ring cache on the same short prompt, both timed
 # the same way here: the 63 tokens after the first, from the first token to the last, collected at the
-# end. Whether the two write the same tokens, and how many compiled programs each became.
+# end. Whether the two write the same tokens, and how many compiled programs each became. The ring cache
+# also runs once more reading each token back to the host as it is made.
 
 # %%
 # Cell 3.1: notebook 04's step against the ring cache
@@ -588,10 +599,11 @@ for label, r in (("ring, 33,024", ring), ("ring, 131,328", big)):
 
 # %% [markdown]
 # **What you should see.** All 64 tokens identical, and the ring cache a few percent slower than
-# notebook 04's step at a 33,024-token context and more at 131,328. In a run on a Colab v5e-1 on
-# 2026-10-23: notebook 04's step at 47.8 tokens per second on this stopwatch, the ring cache at 45.1 to
-# 45.2 with a 33,024-token context and 38.6 to 38.7 with 131,328, 34.2 and 29.5 when streamed. The ring
-# cache compiled to 2 programs with no graph breaks; its first call, compiling both, took about 95 s.
+# notebook 04's step at a 33,024-token context and more at 131,328. In four runs on a Colab v5e-1 on
+# 2026-10-23: notebook 04's step at 47.8 to 47.9 tokens per second on this stopwatch, the ring cache at
+# 45.1 to 45.2 with a 33,024-token context and 38.6 to 38.7 with 131,328, and 32.8 to 34.4 and 28.7 to
+# 30.7 when streamed. The ring cache compiled to 2 programs with no graph breaks; its first call,
+# compiling both, took 91 to 98 s.
 #
 # * **Decode speed follows the cache's size, not the prompt's.** Every step attends over every slot and
 #   masks the empty ones, so the program is the same at every position. A 131,328-slot cache reads 4 times
@@ -635,16 +647,17 @@ print(f"graphs after every prompt: {ring['graphs_after_long']} and {big['graphs_
 
 # %% [markdown]
 # **What you should see.** The same five answers as the laptop GPU, two of them wrong in the same way,
-# and no new compiled programs however long the prompt. In a run on a Colab v5e-1 on 2026-10-23: the
-# 32,761-token prompt read in 4.95 s (6,616 tokens per second) and the 130,981-token one in 38.9 s
-# (3,364), against 2,024 s on the laptop; decode at 45.2 tokens per second at every depth with a
-# 33,024-token context and 38.2 to 38.6 with 131,328.
+# and no new compiled programs however long the prompt. In four runs on a Colab v5e-1 on 2026-10-23: the
+# 32,761-token prompt read in 5.0 s (6,601 to 6,618 tokens per second) with a 33,024-token context, and
+# the 130,981-token one in 35.5 to 39.8 s (3,288 to 3,693) with 131,328, against 2,024 s on the laptop;
+# decode at 45.1 to 45.3 tokens per second at every depth with a 33,024-token context and 38.1 to 38.6
+# with 131,328.
 #
 # * **The wrong answers belong to the model.** Two engines on different hardware, and llama.cpp where it
 #   was run, return the same wrong code: finding one record among thousands of near-identical ones is at
 #   the edge of what E2B does at 32k tokens and beyond. Five prompts are too few to put a rate on it.
 # * **Reading slows with the context, not with the prompt.** Each 256-token piece attends over every slot
-#   of the full-attention layers, so the 32,761-token prompt reads at about half the speed with a
+#   of the full-attention layers, so the same 32,761-token prompt reads at 50% to 56% of the speed with a
 #   131,328-token context as with a 33,024-token one.
 
 # %% [markdown]
@@ -654,24 +667,28 @@ print(f"graphs after every prompt: {ring['graphs_after_long']} and {big['graphs_
 # of the plain static layer, which count in a tensor on the chip. It holds while the cache is no longer
 # than the 512-token window, the condition notebook 04 asserts.
 #
-# **What we are testing.** The same recipe with a 4,352-token cache, on the 4,081-token prompt.
+# **What we are testing.** How many slots Transformers' `StaticCache` gives each kind of layer when it
+# is asked for 4,352, enough for the 4,081-token prompt and a reply. The cache is only described here,
+# never filled: on the chip, this recipe at that length is a fatal error (below).
 
 # %%
-# Cell 5.1: notebook 04's cache with 4,352 slots
-results["static_4k"] = run("static_4k")
-r = results["static_4k"]
-if "error" in r:
-    print("failed:", r["error"][:400])
-else:
-    print(f"answer {r['answer']} (found: {r['found']}), {max(rate(t) for t in r['warm']):.1f} tok/s")
+# Cell 5.1: notebook 04's cache asked for 4,352 slots
+results["static_slots"] = run("static_slots")
+r = results["static_slots"]
+for name, slots, layers in r["kinds"]:
+    print(f"{layers:2d} layers of {name:26s} {slots:5d} slots")
 
 # %% [markdown]
-# **What you should see.** A failure. In a run on a Colab v5e-1 on 2026-10-23 the chip halted with a
-# fatal error the first time a result was read back (`RuntimeUnexpectedCoreHalt`, XLA error E0200).
-# Transformers' sliding-window layer allocates `min(sliding_window, max_cache_len)` slots
-# (`cache_utils.py` in 5.20.1), 512 here, and the plain static layer's `update` writes each token at its
-# position, so a 4,081-token prompt writes past the end of those 512 slots. Beyond the window the cache
-# needs its own layout. The next process got a working chip: each way here runs in its own.
+# **What you should see.** 3 `StaticLayer`s with 4,352 slots and 12 `StaticSlidingWindowLayer`s with 512:
+# the sliding layer allocates `min(sliding_window, max_cache_len)` slots (`cache_utils.py` in
+# Transformers 5.20.1). Notebook 04's fix gives those layers the plain static layer's `update`, which
+# writes each token at its position, so a 4,081-token prompt writes past the end of their 512 slots.
+# Run on the chip, twice on a Colab v5e-1 on 2026-10-23, that recipe with the 4,081-token prompt halted
+# the chip with a fatal error the first time a result was read back (`RuntimeUnexpectedCoreHalt`, XLA
+# error E0200; `runs/2026-10-23/probe_ring_cache_output.ipynb` and `05_e2b_ring_cache_output_run1.ipynb`
+# in this repository); in a third run the cell never returned and the Colab session ended there
+# (`05_e2b_ring_cache_output_run2.ipynb`). Beyond the window the cache needs its own layout, which is the
+# ring.
 
 # %% [markdown]
 # ## 6. Memory on the chip
@@ -690,9 +707,9 @@ for label, r in (("notebook 04 step, 256 slots", static), ("ring, 33,024", ring)
 
 # %% [markdown]
 # **What you should see.** 6.44 GB after loading for every way, 6.65 GB with the 33,024-token ring and
-# 7.26 GB with the 131,328-token one, and a peak near 16.9 GB for every way, as in notebook 04, close to
-# the chip's 16 GiB (17.2 GB). The peak comes from compiling, not from the cache: it is about the same
-# with 256 slots as with 131,328.
+# 7.26 GB with the 131,328-token one, and a peak of 16.7 to 16.9 GB for every way, close to the chip's
+# 16 GiB (17.2 GB). The peak comes from compiling, not from the cache: it is about the same with 256
+# slots as with 131,328.
 
 # %% [markdown]
 # ## 7. Scorecard
@@ -710,11 +727,12 @@ rows = [
     ("graph breaks, ring cache", "0", str(ring["graphs_after_long"][1] + big["graphs_after_long"][1]) if ok else "failed"),
     ("short-prompt tokens identical to notebook 04", "64 of 64",
      f"{next((i for i, (a, b) in enumerate(zip(ring['tokens'], reference)) if a != b), 64)} of 64" if ok else "failed"),
-    ("ring decode, 33,024 over notebook 04 step", "about 0.95x",
+    ("ring decode, 33,024 over notebook 04 step", "about 0.94x",
      f"{max(rate(t) for t in ring['warm']) / max(rate(t) for t in static['warm']):.2f}x" if ok else "failed"),
-    ("130,981-token prompt read, s", "about 39", f"{big['long'][1]['read_s']:.0f}" if ok else "failed"),
+    ("130,981-token prompt read, s", "35 to 40", f"{big['long'][1]['read_s']:.0f}" if ok else "failed"),
     ("answers the same as the laptop GPU", "5 of 5", f"{sum(same_answers)} of {len(same_answers)}"),
-    ("notebook 04's cache at 4,352 slots", "fails", "fails" if "error" in results["static_4k"] else "runs"),
+    ("notebook 04's cache at 4,352: sliding-layer slots", "512",
+     " ".join(str(slots) for name, slots, _ in results["static_slots"]["kinds"] if "Sliding" in name)),
 ]
 print(f"{'claim':52s} {'expected':>12s} {'today':>12s}")
 for claim, expected, today in rows:
@@ -723,8 +741,8 @@ for claim, expected, today in rows:
 # %% [markdown]
 # **So, which one?** For anything past 512 tokens, the ring cache: notebook 04's model, Gemma 4's
 # attention forward replaced by about 40 lines that keep a slot per position in 3 layers and a reused
-# ring in 12, and prompts read in 256-token pieces. It compiles to two programs once, in about 95 s, and
-# then reads a 130,981-token prompt in 39 s and decodes at 38 to 39 tokens per second with the full
+# ring in 12, and prompts read in 256-token pieces. It compiles to two programs once, in 91 to 98 s, and
+# then reads a 130,981-token prompt in 35 to 40 s and decodes at 38 to 39 tokens per second with the full
 # context, writing the same tokens as notebook 04 and the same answers as the laptop GPU. Size the context
 # to the work: a 33,024-token context decodes at 45 tokens per second, within a few percent of notebook
 # 04's 256-slot step. Notebook 04's step remains the fastest way for short chats.
