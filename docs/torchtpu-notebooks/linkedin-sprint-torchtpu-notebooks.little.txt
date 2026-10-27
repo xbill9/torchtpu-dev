@@ -1,0 +1,17 @@
+My TorchTPU Sprint project: PyTorch on TPU, Hands On With Colab
+
+Five Colab notebooks take Gemma 4 E2B on one v5e chip from 5 tokens per second under Hugging Face generate to 50 with one compiled decode step, and to the full 131,072-token context with a ring cache, against a JAX engine on the same chip.
+
+What is in it:
+
+- 🟢 One compiled decode step decodes at 31.3 to 33.4 tokens per second against 5.0 to 5.3 for generate, and at 50.2 to 50.4 with the per-layer table kept 4-bit
+- 🟢 The gap to JAX bf16 shrinks from 14.8x to 2.6x on the same chip, prompt and stopwatch
+- 🟢 Every way writes the same 56-token answer; mean KL between JAX bf16 and PyTorch eager is 0.001073
+- 🟢 The ring cache holds the full context in 0.82 GB, reads a 130,981-token prompt in 35.5 to 39.8 s, and decodes at 38.6 to 38.7 tokens per second
+
+dev.to \(Google Developer Experts\): https://dev.to/gde/pytorch-on-tpu-hands-on-with-colab-5b5g
+Medium: https://medium.com/\@xbill999/pytorch-on-tpu-hands-on-with-colab-05f581b21eeb
+Substack: https://xbill9.substack.com/p/pytorch-on-tpu-hands-on-with-colab
+Source: https://github.com/xbill9/torchtpu-dev/tree/main/colab
+
+\#TorchTPUSprint \#PyTorch \#TPU \#Gemma
