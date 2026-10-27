@@ -31,4 +31,4 @@ advocu-devto-torchtpu-notebooks-cover.webp (1376x578 WebP, 2 KB, from devto-cove
 ---
 Save as draft rather than submitting, and read it back before you do.
 
-Saved as an Advocu draft on 2026-10-23 with these fields and the WebP cover; not submitted.
+Saved as an Advocu draft on 2026-10-23 with these fields and the WebP cover; submitted by 2026-10-27 (listed under Activities, dated Oct 23, with Drafts (0)).
