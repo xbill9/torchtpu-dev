@@ -1,0 +1,21 @@
+[package]
+name = "torchtpu_rs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Rust ops on TorchTPU tensors: tch over the libtorch that torch_tpu registers its kernels with."
+
+[lib]
+name = "torchtpu_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+tch = { version = "0.26.0", features = ["python-extension"] }
+torch-sys = { version = "0.26.0", features = ["python-extension"] }
+pyo3 = { version = "0.30", features = ["extension-module"] }
+safetensors = "0.8.0"
+memmap2 = "0.9.12"
+serde_json = "1.0.154"
+
+[profile.release]
+opt-level = 3
