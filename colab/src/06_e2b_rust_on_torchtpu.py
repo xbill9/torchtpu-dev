@@ -30,8 +30,8 @@
 # libtorch, loaded once in the same process, so a Rust call such as `x.matmul(&y)` on a `tpu` tensor lands on
 # the TorchTPU kernel. Three facts shape the rest:
 #
-# 1. **`tch` 0.26 is generated for PyTorch 2.13.0.** TorchTPU supports 2.11 to 2.15, so this notebook pins
-#    2.13.0, where the earlier notebooks ran 2.14.1.
+# 1. **`tch` 0.26 is generated for PyTorch 2.13.0.** Its bindings fail to compile against 2.14.1, the version
+#    the earlier notebooks ran. TorchTPU supports 2.11 to 2.15, so the Rust ways run on 2.13.0.
 # 2. **`tch::Device` has no `tpu`.** Rust moves tensors with `type_as`, which follows a tensor that is already
 #    on the chip, so the crate never names the device.
 # 3. **`torch.compile` traces Python, so it cannot see Rust.** The fused mode here is defer-and-fuse, which
@@ -83,7 +83,8 @@ install = subprocess.run(
         "-q",
         "torch==2.13.0",
         "torch_tpu==0.2.0",
-        "compressed-tensors",
+        "transformers==5.20.2",
+        "compressed-tensors==0.19.0",
         "--extra-index-url",
         "https://download.pytorch.org/whl/cpu",
     ],
@@ -418,7 +419,7 @@ def task_python(context):
     for label, stream in (("batched", False), ("batched", False), ("stream", True), ("stream", True)):
         tokens, read_s, decode_s = engine.generate(PROMPT_SETS["sky"], stream)
         info.setdefault(label, []).append({"read_s": read_s, "decode_s": decode_s})
-    info["tokens"] = tokens
+    info.update(tokens=tokens, graphs=graphs())
     info["long"] = []
     for prompt in PROMPT_SETS["short"]:
         tokens, read_s, decode_s = engine.generate(prompt["ids"])
@@ -515,36 +516,43 @@ print(subprocess.run([sys.executable, "-c", BRIDGE, str(MOD)], capture_output=Tr
 #
 # **What we are testing.** The Rust engine under defer-and-fuse and under strict eager, against notebook 05's
 # Python ring compiled with `torch.compile`, all at a 33,024-token context: compile time, tokens, and decode
-# speed on the short prompt. This cell takes about @@MINUTES@@ minutes.
+# speed on the short prompt. The Python ring runs twice, on the 2.13.0 the crate needs and on the 2.14.1
+# notebook 05 used, and the cell swaps PyTorch between them. It takes about 12 minutes.
 
 # %%
 # Cell 3.1: run every way
 WAYS = {
-    "Python, torch.compile": ("python", {}),
-    "Rust, defer-and-fuse": ("rust", {"TORCH_TPU_DEFER_AND_FUSE": "1"}),
-    "Rust, strict eager": ("rust", {}),
+    "Rust fused, torch 2.13": ("rust", {"TORCH_TPU_DEFER_AND_FUSE": "1"}),
+    "Rust eager, torch 2.13": ("rust", {}),
+    "Python compile, 2.13": ("python", {}),
+    "Python compile, 2.14.1": ("python", {}),
 }
 results = {}
 for way, (task, extra) in WAYS.items():
+    if way.endswith("2.14.1"):
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "torch==2.14.1",
+                        "--extra-index-url", "https://download.pytorch.org/whl/cpu"],
+                       check=True, capture_output=True)
     start = time.perf_counter()
     results[way] = run(task, extra)
     print(f"{way:24s} finished in {time.perf_counter() - start:4.0f} s: {results[way].get('error', 'ok')}")
 
 print()
-print(f"{'way':24s} {'load s':>7s} {'first s':>8s} {'streamed':>9s} {'in batches':>11s} {'peak GB':>8s}")
+print(f"{'way':24s} {'load s':>7s} {'first s':>8s} {'graphs':>7s} {'breaks':>7s} {'streamed':>9s} {'in batches':>11s} {'peak GB':>8s}")
 for way, r in results.items():
     if "error" in r:
         continue
     streamed = max(rate(t) for t in r["stream"])
     batch = r.get("batched") or r.get("every_8")
-    print(f"{way:24s} {r['load_s']:7.1f} {r['first_call_s']:8.1f} {streamed:9.1f} "
+    programs, breaks = r.get("graphs", ("-", "-"))
+    print(f"{way:24s} {r['load_s']:7.1f} {r['first_call_s']:8.1f} {programs!s:>7s} {breaks!s:>7s} {streamed:9.1f} "
           f"{max(rate(t) for t in batch):11.1f} {r['hbm_peak_gb']:8.2f}")
 
-reference = results["Python, torch.compile"].get("tokens", [])
+reference = results["Python compile, 2.14.1"].get("tokens", [])
 for way, r in results.items():
-    if "error" not in r and way != "Python, torch.compile":
+    if "error" not in r and way != "Python compile, 2.14.1":
         same = next((i for i, (a, b) in enumerate(zip(r["tokens"], reference)) if a != b), len(reference))
-        print(f"{way}: first {same} of {len(reference)} tokens identical to the Python ring")
+        print(f"{way}: first {same} of {len(reference)} tokens identical to Python compile on 2.14.1")
 
 # %% [markdown]
 # @@SEE3@@
@@ -575,18 +583,21 @@ for way, r in results.items():
 
 # %%
 # Cell 5.1: the scorecard
-py, fuse, eager = (results[w] for w in WAYS)
-ok = all("error" not in r for r in (py, fuse, eager))
+fuse, eager, py213, py = (results[w] for w in WAYS)
+ok = all("error" not in r for r in (fuse, eager, py213, py))
 tokens_same = sum(a == b for a, b in zip(fuse.get("tokens", []), py.get("tokens", [])))
 answers_same = sum(a["answer"] == b["answer"] for a, b in zip(fuse.get("long", []), py.get("long", [])))
 rows = [
     ("Rust layout: full / sliding / shared", "3 / 12 / 20", " / ".join(str(v) for v in fuse.get("layout", [])[:3])),
-    ("short-prompt tokens identical, Rust to Python", "64 of 64", f"{tokens_same} of 64"),
-    ("long-prompt answers identical, Rust to Python", "3 of 3", f"{answers_same} of 3"),
+    ("short-prompt tokens, Rust to compiled 2.14.1", "64 of 64", f"{tokens_same} of 64"),
+    ("long-prompt answers, Rust to compiled 2.14.1", "3 of 3", f"{answers_same} of 3"),
+    ("compiled programs on torch 2.13 / 2.14.1", "65 / 2", f"{py213.get('graphs', ['?'])[0]} / {py.get('graphs', ['?'])[0]}"),
 ]
 if ok:
-    rows.append(("streamed, Rust fused over Python compiled", "@@RATIO@@",
+    rows.append(("streamed, Rust fused over compiled 2.14.1", "@@RATIO@@",
                  f"{max(rate(t) for t in fuse['stream']) / max(rate(t) for t in py['stream']):.2f}x"))
+    rows.append(("streamed, Rust fused over Rust eager", "about 3.2x",
+                 f"{max(rate(t) for t in fuse['stream']) / max(rate(t) for t in eager['stream']):.2f}x"))
 print(f"{'claim':48s} {'expected':>12s} {'today':>12s}")
 for claim, expected, today in rows:
     print(f"{claim:48s} {expected:>12s} {today:>12s}")
