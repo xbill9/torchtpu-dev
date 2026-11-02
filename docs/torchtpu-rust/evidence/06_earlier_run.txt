@@ -1,0 +1,27 @@
+# notebook 06, earlier run on the same day, transformers 5.21.0 and compressed-tensors 0.20.1. Its Python way ran on torch 2.13.
+transformers         5.21.0
+compressed-tensors   0.20.1
+built in Rust, moved: [0.0, 1.0, 2.0, 3.0, 4.0] on tpu:0
+Python, torch.compile    finished in  103 s: ok
+Rust, defer-and-fuse     finished in  163 s: ok
+Rust, strict eager       finished in  199 s: ok
+way                       load s  first s  streamed  in batches  peak GB
+Python, torch.compile       19.8     33.6      16.5        16.6    10.85
+Rust, defer-and-fuse        24.7     82.5      14.7        16.0     7.75
+Rust, strict eager          23.8     22.6       5.0         4.8     8.62
+Rust, defer-and-fuse: first 21 of 64 tokens identical to the Python ring
+Rust, strict eager: first 21 of 64 tokens identical to the Python ring
+way                       prompt  read s read tok/s  decode   answer  found
+Python, torch.compile         61     0.1       1051    17.1   915965    yes
+Python, torch.compile       4081     0.9       4513    16.6   610395    yes
+Python, torch.compile      32761     7.2       4519    16.0   319550     no
+Rust, defer-and-fuse          61     0.1        772    14.4   915965    yes
+Rust, defer-and-fuse        4081     1.0       4172    15.9   610395    yes
+Rust, defer-and-fuse       32761     7.6       4328    15.1   319550     no
+Rust, strict eager            61     0.2        302     5.0   915965    yes
+Rust, strict eager          4081     3.7       1104     4.3   610395    yes
+Rust, strict eager         32761    29.9       1095     4.6   319550     no
+short-prompt tokens identical, Rust to Python        64 of 64     24 of 64
+long-prompt answers identical, Rust to Python          3 of 3       3 of 3
+streamed, Rust fused over Python compiled           @@RATIO@@        0.89x
+

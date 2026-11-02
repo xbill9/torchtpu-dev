@@ -1,0 +1,29 @@
+[colab] Session READY.
+short prompt: 19 tokens
+    61 tokens,     1 records, target     1
+  4081 tokens,   135 records, target    33
+ 32761 tokens,  1091 records, target   272
+[colab] Executing cell 3/4 - 7076ed02...
+task script written: /content/rust_tasks.py
+[colab] Executing cell 4/4 - 4827d0f7...
+rs_fuse {'load_s': 23.58, 'first_call_s': 82.27, 'hbm_peak_gb': 7.75} graphs None stream [15.7, 15.5] batched [8.1, 15.6, 15.3]
+rs_eager {'load_s': 23.57, 'first_call_s': 24.72, 'hbm_peak_gb': 8.62} graphs None stream [4.8, 4.8] batched [4.8, 4.9, 4.7]
+py_t213_newlibs {'load_s': 19.99, 'first_call_s': 34.54, 'hbm_peak_gb': 10.85} graphs [65, 64] stream [14.8, 16.0] batched [15.9, 16.2]
+pip ('transformers==5.20.2', 'compressed-tensors==0.19.0') 0 
+py_t213_nb05libs {'load_s': 25.15, 'first_call_s': 16.35, 'hbm_peak_gb': 11.26} graphs [65, 64] stream [16.7, 15.6] batched [16.8, 17.2]
+pip ('torch==2.14.1',) 0 
+py_nb05stack {'load_s': 25.09, 'first_call_s': 98.46, 'hbm_peak_gb': 16.91} graphs [2, 0] stream [33.4, 33.5] batched [45.2, 45.2]
+rs_fuse [('rs_fuse', 64), ('rs_eager', 64), ('py_t213_newlibs', 21), ('py_t213_nb05libs', 21), ('py_nb05stack', 64)]
+rs_eager [('rs_fuse', 64), ('rs_eager', 64), ('py_t213_newlibs', 21), ('py_t213_nb05libs', 21), ('py_nb05stack', 64)]
+py_t213_newlibs [('rs_fuse', 21), ('rs_eager', 21), ('py_t213_newlibs', 64), ('py_t213_nb05libs', 64), ('py_nb05stack', 21)]
+py_t213_nb05libs [('rs_fuse', 21), ('rs_eager', 21), ('py_t213_newlibs', 64), ('py_t213_nb05libs', 64), ('py_nb05stack', 21)]
+py_nb05stack [('rs_fuse', 64), ('rs_eager', 64), ('py_t213_newlibs', 21), ('py_t213_nb05libs', 21), ('py_nb05stack', 64)]
+rs_fuse "The sky appears blue because of a phenomenon called Rayleigh scattering, where the Earth's atmosphere scatters shorter, blue wavelengths of sunlight more effectively than longer, red wavelengths. This scattered blue light is what reaches our eyes from
+rs_eager "The sky appears blue because of a phenomenon called Rayleigh scattering, where the Earth's atmosphere scatters shorter, blue wavelengths of sunlight more effectively than longer, red wavelengths. This scattered blue light is what reaches our eyes fro
+py_t213_newlibs "The sky appears blue because of a phenomenon called Rayleigh scattering, where the Earth's atmosphere scatters shorter wavelengths of sunlight (blue and violet) more effectively than longer wavelengths. This scattered blue light is what reache
+py_t213_nb05libs "The sky appears blue because of a phenomenon called Rayleigh scattering, where the Earth's atmosphere scatters shorter wavelengths of sunlight (blue and violet) more effectively than longer wavelengths. This scattered blue light is what reach
+py_nb05stack "The sky appears blue because of a phenomenon called Rayleigh scattering, where the Earth's atmosphere scatters shorter, blue wavelengths of sunlight more effectively than longer, red wavelengths. This scattered blue light is what reaches our eyes
+[colab] Saving notebook with outputs to 'probe_rust_diag_output.ipynb'...
+[colab] Session terminated.
+
+[exited with code 0]

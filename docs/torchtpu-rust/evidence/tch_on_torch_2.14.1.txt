@@ -1,0 +1,1 @@
+error: 'qr' is not a member of 'torch' (tch 0.26 bindings against torch 2.14.1, local cargo build, 2026-11-01)

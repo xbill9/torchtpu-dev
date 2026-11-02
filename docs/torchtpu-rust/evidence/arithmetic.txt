@@ -1,0 +1,5 @@
+final run: Rust fused over compile, streamed 0.45x
+final run: Rust fused over eager, streamed 3.15x
+final run: compile over Rust fused, in batches 2.97x
+peak memory, compile over Rust fused 2.18x
+32,761-token read, Rust fused over compile 1.60x slower
