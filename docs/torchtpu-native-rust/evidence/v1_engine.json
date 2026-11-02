@@ -1,0 +1,49 @@
+{
+    "served_name": "xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4",
+    "ready": true,
+    "error": null,
+    "busy": false,
+    "queued": 0,
+    "device": "tpu",
+    "context": 8192,
+    "read_every": 1,
+    "stop_ids": [
+        1,
+        106,
+        50
+    ],
+    "layout": {
+        "full_rings": 3,
+        "sliding_rings": 12,
+        "shared_layers": 20,
+        "context": 8192
+    },
+    "torch_tpu_defer_and_fuse": "1",
+    "load_seconds": 6.83,
+    "warmup_seconds": 18.8,
+    "versions": {
+        "torchtpu_rs": "0.1.0",
+        "built_with": {
+            "torch": "2.14.1+cpu",
+            "rustc": "rustc 1.101.0-nightly (3e92e1a2d 2026-11-01)",
+            "python": "3.14.10",
+            "crate": "0.1.0"
+        },
+        "torch": "2.14.1+cpu",
+        "torch_tpu": "0.2.0",
+        "libtpu": "0.0.51",
+        "transformers": "5.20.2",
+        "python": "3.14.10"
+    },
+    "bindings": {
+        "module": "torchtpu_rs: PyO3 0.30 extension-module over an ATen shim (rust/src/aten.cpp) compiled against torch 2.14.1+cpu",
+        "engine_class": "Engine \u2014 #[pyclass(unsendable)], owned by thread torchtpu-rs-engine",
+        "calls": [
+            "Engine(model_dir, emb4_dir, like, context)  GIL released",
+            "Engine.decode(ids, max_new, stop, read_every, on_tokens) -> DecodeResult  GIL released; on_tokens re-attaches",
+            "Engine.generate(ids, max_new, read_every) -> (tokens, read_s, decode_s)  GIL released",
+            "Engine.logits(ids) -> torch.Tensor  shares storage with the Rust tensor",
+            "Engine.layout() -> (full_rings, sliding_rings, shared_layers, context)"
+        ]
+    }
+}

@@ -1,0 +1,54 @@
+# stdout of colab/runs/2026-11-01/06_e2b_rust_on_torchtpu_output.ipynb
+Python 3.13.18
+torch_tpu            0.2.0
+torch                2.13.0+cpu
+libtpu               0.0.50
+transformers         5.20.2
+compressed-tensors   0.19.0
+installed in 40 s
+Finished `release` profile [optimized] target(s) in 1m 44s
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+Rust installed and crate built in 122 s
+downloaded in 82 s
+short prompt: 19 tokens
+    61 tokens,     1 records, target     1
+  4081 tokens,   135 records, target    33
+ 32761 tokens,  1091 records, target   272
+task script written: /content/rust_tasks.py
+Rust matmul then sum: 64.0 on tpu:0
+built in Rust, moved: [0.0, 1.0, 2.0, 3.0, 4.0] on tpu:0
+bf16 kept: torch.bfloat16
+
+Rust fused, torch 2.13   finished in  164 s: ok
+Rust eager, torch 2.13   finished in  198 s: ok
+Python compile, 2.13     finished in  110 s: ok
+Python compile, 2.14.1   finished in  158 s: ok
+
+way                       load s  first s  graphs  breaks  streamed  in batches  peak GB
+Rust fused, torch 2.13      23.1     83.5       -       -      15.1        15.2     7.75
+Rust eager, torch 2.13      23.8     22.8       -       -       4.8         4.8     8.62
+Python compile, 2.13        25.6     34.6      65      64      15.9        16.2    11.26
+Python compile, 2.14.1      25.9    101.1       2       0      33.5        45.1    16.91
+Rust fused, torch 2.13: first 64 of 64 tokens identical to Python compile on 2.14.1
+Rust eager, torch 2.13: first 64 of 64 tokens identical to Python compile on 2.14.1
+Python compile, 2.13: first 21 of 64 tokens identical to Python compile on 2.14.1
+way                       prompt  read s read tok/s  decode   answer  found
+Rust fused, torch 2.13        61     0.1        776    14.6   915965    yes
+Rust fused, torch 2.13      4081     1.0       4172    14.8   610395    yes
+Rust fused, torch 2.13     32761     8.0       4116    15.6   319550     no
+Rust eager, torch 2.13        61     0.2        256     4.7   915965    yes
+Rust eager, torch 2.13      4081     3.6       1147     4.5   610395    yes
+Rust eager, torch 2.13     32761    28.5       1148     4.8   319550     no
+Python compile, 2.13          61     0.1        733    15.3   915965    yes
+Python compile, 2.13        4081     1.0       4290    15.7   610395    yes
+Python compile, 2.13       32761     8.2       3984    14.9   319550     no
+Python compile, 2.14.1        61     0.0       1244    45.1   915965    yes
+Python compile, 2.14.1      4081     0.7       6036    45.2   610395    yes
+Python compile, 2.14.1     32761     5.0       6555    45.1   319550     no
+claim                                                expected        today
+Rust layout: full / sliding / shared              3 / 12 / 20  3 / 12 / 20
+short-prompt tokens, Rust to compiled 2.14.1         64 of 64     64 of 64
+long-prompt answers, Rust to compiled 2.14.1           3 of 3       3 of 3
+compiled programs on torch 2.13 / 2.14.1               65 / 2       65 / 2
+streamed, Rust fused over compiled 2.14.1           @@RATIO@@        0.45x
+streamed, Rust fused over Rust eager               about 3.2x        3.16x

@@ -1,0 +1,11 @@
+# Captured 2026-11-02 at 18:28 UTC over SSH from gemma4-rust-qr-node: `systemctl status torchtpu-rs` and
+# `journalctl -u torchtpu-rs` (tail), before jinja2>=3.1 was pip-installed. Excerpt, verbatim.
+     Active: activating (auto-restart) (Result: exit-code) since Mon 2026-11-02 18:28:10 UTC; 4s ago
+Nov 02 18:28:09 t1v-n-2c6db793-w-0 python3.14[33011]:   File "/usr/local/lib/python3.14/dist-packages/transformers/utils/chat_template_utils.py", line 583, in _cached_compile_jinja_template
+Nov 02 18:28:09 t1v-n-2c6db793-w-0 python3.14[33011]:     raise ImportError(
+Nov 02 18:28:09 t1v-n-2c6db793-w-0 python3.14[33011]:         f"apply_chat_template requires jinja2>=3.1.0 to be installed. Your version is {jinja2.__version__}."
+Nov 02 18:28:09 t1v-n-2c6db793-w-0 python3.14[33011]:     )
+Nov 02 18:28:09 t1v-n-2c6db793-w-0 python3.14[33011]: ImportError: apply_chat_template requires jinja2>=3.1.0 to be installed. Your version is 3.0.3.
+# After `sudo python3.14 -m pip install --break-system-packages 'jinja2>=3.1'`, same session:
+jinja2 3.1.6 /usr/local/lib/python3.14/dist-packages/jinja2/__init__.py
+active

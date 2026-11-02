@@ -1,0 +1,20 @@
+# Demo checks, 2026-11-02T19:46Z, laptop -> local shim http://127.0.0.1:8015 -> TPU VM
+## demo MCP server tools: ['ask_gemma_rust', 'stream_gemma_rust', 'engine_info', 'endpoint_status', 'serving_metrics']
+## endpoint_status
+🟢 local http://127.0.0.1:8015/v1 → http://136.85.219.123:8000
+- TPU /health: 200
+- queued resource `gemma4-rust-qr` in us-west4-a, project aisprint-491218
+- upstream found at 2026-11-02T18:51:49Z; forwarded 26, errors 0
+## ask_gemma_rust('What is a TPU? Two sentences.', max_tokens=96)
+A TPU stands for **Tensor Processing Unit**, which is a specialized type of integrated circuit designed to accelerate machine learning workloads. It is specifically optimized for the matrix multiplications common in deep learning, making it significantly faster and more energy-efficient than traditional CPUs or GPUs for AI tasks.
+
+---
+xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4 · finish `stop` · 17 prompt + 55 completion tokens · prompt read 0.088 s · decode 12.2 tok/s on the TPU · 4.59 s round trip from here
+## stream_gemma_rust('Write a haiku about Rust and TPUs.', max_tokens=64)
+Fast Rust compiles,
+TPU's deep learning learns,
+Speed in silicon.
+
+---
+streamed 18 tokens · time to first token 0.167 s · 11.6 tok/s after the first · 1.63 s total · finish `stop` (timed here)
+## client disconnect after 10 streamed chunks: cancelled counter 1 -> 2; torchtpu_rs_busy 0

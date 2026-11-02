@@ -1,0 +1,19 @@
+ocean prompt: 5 requests, decode tok/s median 12.20, min 12.13, max 12.50
+vLLM TPU server decode 144.1 tok/s; vLLM / Rust = 11.8x
+Colab Rust fused (tch, torch 2.13): streamed 15.1, batched 15.2
+Colab Python compile (torch 2.14.1): streamed 33.5, batched 45.1
+Rust here / Colab Rust fused streamed = 0.81
+Colab compiled streamed / Rust here = 2.75x
+v5e-1 flex-start USD 0.60/hr: Rust USD 13.66 per M output tokens at 12.20 tok/s; vLLM USD 1.16 at 144.1 tok/s (server decode rate, one request at a time)
+streaming bench: 8 requests, first token 0.175 to 0.256 s, client decode 11.5 to 12.6 tok/s
+boot python -> unit: 0:04:29
+boot torch -> rust: 0:01:24
+boot weights -> unit: 0:01:25
+rendered startup script 48128 bytes = 47 KiB (metadata limit 256 KiB)
+aten.cpp: 58 extern "C" functions, 154 lines
+  lib.rs: 26 lines
+  aten.rs: 484 lines
+  bindings.rs: 270 lines
+  gemma.rs: 491 lines
+  weights.rs: 91 lines
+  aten.cpp: 154 lines

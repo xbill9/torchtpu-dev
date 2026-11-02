@@ -1,0 +1,15 @@
+# make test-rust, 2026-11-02T19:42Z, laptop CPU; python3 3.14.7 2.14.1+cpu
+test_bad_input_is_value_error (tests.test_rust_bindings.RustBindings.test_bad_input_is_value_error) ... ok
+test_callback_exception_propagates (tests.test_rust_bindings.RustBindings.test_callback_exception_propagates) ... ok
+test_cancel_and_length (tests.test_rust_bindings.RustBindings.test_cancel_and_length) ... ok
+test_decode_stops_and_streams (tests.test_rust_bindings.RustBindings.test_decode_stops_and_streams) ... ok
+test_gil_released_during_decode (tests.test_rust_bindings.RustBindings.test_gil_released_during_decode) ... ok
+test_module_surface (tests.test_rust_bindings.RustBindings.test_module_surface) ... ok
+test_tensor_functions (tests.test_rust_bindings.RustBindings.test_tensor_functions) ... ok
+test_unsendable (tests.test_rust_bindings.RustBindings.test_unsendable) ... 
+ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 247.568s
+
+OK

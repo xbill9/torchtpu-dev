@@ -1,0 +1,14 @@
+# Copied 2026-11-02 from ~/gcp-inference/results/2026-10-12/server-side-tpu.txt (github.com/xbill9/gcp-inference): vLLM 0.30.0 TPU (vllm/vllm-tpu:v0.30.0) serving google/gemma-4-E2B-it bf16 on a v5e-1, decode rate from vLLM's own /metrics.
+Prompt: 'Write a short paragraph about the ocean.', max_tokens=100, 5 requests per backend, one at a time
+
+backend     server decode tok/s  client median tok/s
+tpu                       144.1                105.2
+
+# Copied from cost.txt in the same directory:
+prices fetched 2026-10-12T19:57:57+00:00; bench results/2026-10-12; GKE node g2-standard-8
+
+One request at a time (bench_chat.py, 100-token answer)
+
+backend      tok/s  USD/hr  USD/month 24x7  USD / 1M output tokens
+maas          14.2       -          0 idle                    0.60  (per-token list price, input 0.150)
+tpu          105.3  0.6000             438                    1.58  (flex-start; on-demand USD 1.20/hr = 3.17)

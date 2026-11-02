@@ -1,0 +1,9 @@
+# 2026-11-02T19:43Z, through the local shim to http://136.85.219.123:8000 (queued resource gemma4-rust-qr, us-west4-a)
+# Same prompt and length as gcp-inference's server-side bench: 'Write a short paragraph about the ocean.', max_tokens=100, 5 requests, one at a time
+# decode tok/s = (completion_tokens - 1) / timings.decode_s, the engine's own timer on the VM; client s = round trip from this laptop
+request 1: 83 tokens, finish stop, read 0.088 s, decode 6.651 s, 12.33 tok/s, client 6.83 s
+request 2: 83 tokens, finish stop, read 0.086 s, decode 6.720 s, 12.20 tok/s, client 6.89 s
+request 3: 83 tokens, finish stop, read 0.086 s, decode 6.734 s, 12.18 tok/s, client 6.91 s
+request 4: 83 tokens, finish stop, read 0.087 s, decode 6.762 s, 12.13 tok/s, client 6.94 s
+request 5: 83 tokens, finish stop, read 0.083 s, decode 6.561 s, 12.50 tok/s, client 6.74 s
+median decode tok/s 12.20, min 12.13, max 12.50

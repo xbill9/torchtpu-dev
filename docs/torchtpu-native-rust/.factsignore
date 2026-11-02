@@ -1,0 +1,14 @@
+# "one chip" / "1 chip": the hardware of every run, a v5e-1, stated in tpu.env, not a measurement
+1 chip
+# 8,192 / 8192: the configured cache length (SERVE_CONTEXT in tpu.env), a setting
+8192
+8,192
+# 100 tokens: the requested max_tokens of the comparison prompt, a setting
+100
+# 2.14: the PyTorch minor version named in prose ("PyTorch 2.14's headers"), a version, not a measurement
+2.14
+# [1, 106, 50]: eos_token_id from the checkpoint's generation_config.json, a fact of the checkpoint
+106
+50
+# 35 layers: from the checkpoint's config.json (num_hidden_layers), a fact of the model
+35

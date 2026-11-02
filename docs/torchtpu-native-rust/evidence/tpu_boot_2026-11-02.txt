@@ -1,0 +1,25 @@
+# First boot of gemma4-rust-qr (v5e-1 queued resource, us-west4-a, project aisprint-491218), 2026-11-02.
+# Lines from /var/log/torchtpu-rs-startup.log and journalctl -u torchtpu-rs on the VM.
+# Guest-attribute stage times (UTC): python 18:04:05, torch 18:05:08, rust 18:06:32, weights 18:07:09, unit 18:08:34, serving 18:29:20.
+# python -> unit took 0:04:29. The unit then crash-looped on jinja2 3.0.3 from /usr/lib/python3/dist-packages
+# (Transformers' chat template needs >=3.1) until jinja2 3.1.6 was pip-installed and the unit restarted;
+# TORCH_PIP_SPEC now includes 'jinja2>=3.1'. After the restart: load 6.8 s, warmup decode 18.8 s.
+STAGE: network
+STAGE: python
+g++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+STAGE: torch
+torch 2.14.1+cpu
+STAGE: rust
+STAGE: crate
+rustc 1.101.0-nightly (3e92e1a2d 2026-11-01)
+    Finished `release` profile [optimized] target(s) in 21.03s
+STAGE: weights
+STAGE: smoke
+torchtpu_rs 0.1.0 matmul_sum 512.0 on tpu:0
+TPU smoke OK
+TPU environment ready.
+STAGE: unit
+TPU serving started.
+STAGE: serving
+Nov 02 18:28:55 t1v-n-2c6db793-w-0 python3.14[34763]: 2026-11-02 18:28:55,755 INFO rust_openai_server: engine loaded in 6.8 s: Engine(context=8192, full_rings=3, sliding_rings=12, shared_layers=20)
+Nov 02 18:29:14 t1v-n-2c6db793-w-0 python3.14[34763]: 2026-11-02 18:29:14,551 INFO rust_openai_server: warmup decode in 18.8 s
