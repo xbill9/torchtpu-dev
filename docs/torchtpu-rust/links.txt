@@ -1,0 +1,11 @@
+# Destination URLs for the LinkedIn, Slack and Google Chat posts. PENDING fails the
+# run on purpose: a post whose links do not resolve is worse than no post.
+# Drafts, 2026-11-02: dev.to article 4959634, Medium story 4eb448b1b602,
+# Substack post 223177254 on xbill9.substack.com. None published yet.
+devto-gde  = PENDING
+medium     = PENDING
+substack   = PENDING
+builder    = SKIP
+repo       = https://github.com/xbill9/torchtpu-dev/tree/main/colab/rust
+devto-aws  = SKIP
+linkedin   = PENDING
