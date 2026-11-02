@@ -1,0 +1,17 @@
+My TorchTPU Sprint project: Gemma 4 in Rust on TorchTPU, a native TPU rig with PyO3 and MCP
+
+Gemma 4 E2B with the model in Rust, served from a TPU v5e-1 VM through PyO3 and a C++ shim over ATen, with no tch and no pinned PyTorch, an OpenAI endpoint, an MCP server and a local chat UI.
+
+What is in it:
+
+- 🟢 Rust matches Transformers on CPU on 64 of 64 tokens, with a KL divergence of 1.1e-5, on PyTorch 2.14.1
+- 🟢 No pinned PyTorch: Python 3.14, PyTorch 2.14.1 and nightly Rust on the VM
+- 🟢 4 minutes 29 seconds from installing Python to starting the service, with the crate built on the VM in 21 seconds
+- 🟢 OpenAI endpoint, streaming, cancel on disconnect, an MCP server for the TPU and one for demos, and a local chat page
+
+dev.to (Google Developer Experts): https://dev.to/gde/gemma-4-in-rust-on-torchtpu-a-native-tpu-rig-with-pyo3-and-mcp-47j1
+Medium: https://xbill999.medium.com/gemma-4-in-rust-on-torchtpu-a-native-tpu-rig-with-pyo3-and-mcp-bd41fdaa9c05
+Substack: https://xbill9.substack.com/p/gemma-4-in-rust-on-torchtpu-a-native
+Source: https://github.com/xbill9/torchtpu-dev/tree/main/tpu-pytorchrust-v5e1-2b-q4w4a16emb4
+
+#TorchTPUSprint #Rust #PyTorch #TPU #Gemma
