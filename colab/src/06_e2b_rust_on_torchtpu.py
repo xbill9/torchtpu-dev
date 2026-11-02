@@ -555,7 +555,19 @@ for way, r in results.items():
         print(f"{way}: first {same} of {len(reference)} tokens identical to Python compile on 2.14.1")
 
 # %% [markdown]
-# @@SEE3@@
+# **What you should see.** All 64 tokens from both Rust ways identical to the compiled Python ring on PyTorch
+# 2.14.1. In three runs on a Colab v5e-1 on 2026-11-01, Rust under defer-and-fuse streamed at 14.7 to 15.7 tokens
+# per second and Rust in strict eager at 4.8 to 5.0. In two of those runs the compiled ring on 2.14.1 reached 45.1
+# to 45.2 in batches and 33.4 to 33.5 streamed, as two programs with no graph breaks.
+#
+# * **Fusing is worth about 3.2x to Rust.** One environment variable, no change to the crate, and the same tokens.
+# * **`torch.compile` remains the fastest way.** It compiles one program for the whole step, and Rust fused streams
+#   at about 0.46x its rate.
+# * **Compile on PyTorch 2.13.0 breaks this model apart.** It made 65 programs with 64 graph breaks, ran at 15.9 to
+#   16.2 tokens per second, and wrote a different reply from token 21. On 2.14.1 the same source makes 2 programs
+#   and matches the Rust engine and Transformers. The cause of the break was not investigated.
+# * **The Rust way holds less.** Its peak was 7.75 GB under defer-and-fuse against 16.91 GB for compile on 2.14.1,
+#   where the peak comes from compiling. Its first call took 82 to 84 s against 98 to 101 s.
 
 # %% [markdown]
 # ## 4. Long prompts
@@ -574,7 +586,10 @@ for way, r in results.items():
               f"{rate(row):7.1f} {row['answer']:>8s} {'yes' if row['found'] else 'no':>6s}")
 
 # %% [markdown]
-# @@SEE4@@
+# **What you should see.** The same three answers from every way, the third one wrong in the same way, which
+# notebook 05 traced to the model. On the 32,761-token prompt on 2026-11-01, Rust under defer-and-fuse read in 7.6 to
+# 8.0 s and the compiled ring on 2.14.1 in 5.0 s, with Rust in strict eager at about 29 s. Decode speed held steady
+# at every depth in every way, because each step attends over every slot of a cache of the same size.
 
 # %% [markdown]
 # ## 5. Scorecard
@@ -594,7 +609,7 @@ rows = [
     ("compiled programs on torch 2.13 / 2.14.1", "65 / 2", f"{py213.get('graphs', ['?'])[0]} / {py.get('graphs', ['?'])[0]}"),
 ]
 if ok:
-    rows.append(("streamed, Rust fused over compiled 2.14.1", "@@RATIO@@",
+    rows.append(("streamed, Rust fused over compiled 2.14.1", "about 0.46x",
                  f"{max(rate(t) for t in fuse['stream']) / max(rate(t) for t in py['stream']):.2f}x"))
     rows.append(("streamed, Rust fused over Rust eager", "about 3.2x",
                  f"{max(rate(t) for t in fuse['stream']) / max(rate(t) for t in eager['stream']):.2f}x"))
@@ -603,4 +618,13 @@ for claim, expected, today in rows:
     print(f"{claim:48s} {expected:>12s} {today:>12s}")
 
 # %% [markdown]
-# @@WHICH@@
+# **So, which one?** For speed, the Python ring with `torch.compile` on PyTorch 2.14.1: 45 tokens per second in
+# batches and 33 streamed. For a model written in Rust, defer-and-fuse: about 15 tokens per second streamed, the
+# same 64 tokens, the same answers, and less than half the peak memory, at the cost of one environment variable.
+# Strict eager suits debugging, at about 5 tokens per second.
+#
+# **Scope.** One v5e chip on Colab, one checkpoint, greedy decoding, a single sequence, four prompts, and a
+# 33,024-token context. The Rust ways ran on PyTorch 2.13.0 and the fastest baseline on 2.14.1, one version apart,
+# because `tch` 0.26 builds against 2.13.0 only. Python still hosts the process: it imports TorchTPU, builds the
+# prompts and calls the engine. The 131,328-token context, a serving endpoint, and where the time goes between
+# Rust fused and compile were not run here.
