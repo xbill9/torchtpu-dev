@@ -194,14 +194,14 @@ on a Colab v5e-1 runtime: one TPU v5e chip. A Rust crate reads the
 checkpoint, unpacks the 4-bit weights, runs the 35 layers and the ring
 cache, and drives the decode loop. Python hosts the backend and starts
 the engine. No JAX is involved.</p>
-<figure><img src="https://raw.githubusercontent.com/xbill9/torchtpu-dev/main/docs/torchtpu-rust/medium/imgdevto-cover.415eb5a0.jpg" alt="Gemma 4 in Rust on TorchTPU: Hands On With Colab" /></figure>
+<figure><img src="https://raw.githubusercontent.com/xbill9/torchtpu-dev/main/docs/torchtpu-rust/medium/img/devto-cover.415eb5a0.jpg" alt="Gemma 4 in Rust on TorchTPU: Hands On With Colab" /></figure>
 <p><a
 href="https://github.com/xbill9/torchtpu-dev/tree/main/colab/rust">https://github.com/xbill9/torchtpu-dev/tree/main/colab/rust</a></p>
 <p><strong>Rust writes the same tokens as compiled Python at about half
 the streaming speed and less than half the peak memory.</strong> Same
 chip, same checkpoint, same 19-token prompt, 64 greedy tokens,
 33,024-token context:</p>
-<p><img src="https://raw.githubusercontent.com/xbill9/torchtpu-dev/main/docs/torchtpu-rust/medium/imgdevto-torchtpu-rust-table-1.png"
+<p><img src="https://raw.githubusercontent.com/xbill9/torchtpu-dev/main/docs/torchtpu-rust/medium/img/devto-torchtpu-rust-table-1.png"
 alt="Table: One Colab v5e-1 chip, Streamed tok/s, Batched tok/s, First call, Peak memory" /></p>
 <p>Both Rust ways match the compiled Python model on all 64 tokens and
 on all three long-prompt answers.</p>
@@ -383,7 +383,7 @@ Decode speed holds steady at every depth, because each step attends over
 every slot of a cache of the same size.</p>
 <hr />
 <h4 id="compare-and-contrast">Compare and Contrast</h4>
-<p><img src="https://raw.githubusercontent.com/xbill9/torchtpu-dev/main/docs/torchtpu-rust/medium/imgdevto-torchtpu-rust-table-2.png"
+<p><img src="https://raw.githubusercontent.com/xbill9/torchtpu-dev/main/docs/torchtpu-rust/medium/img/devto-torchtpu-rust-table-2.png"
 alt="Table: One v5e chip, Gemma 4 E2B, Streamed tok/s, Model code, PyTorch, Peak memory" /></p>
 <hr />
 <h4 id="so-which-one">So, Which One?</h4>
