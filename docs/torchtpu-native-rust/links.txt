@@ -1,10 +1,10 @@
 # Destination URLs for the LinkedIn, Slack and Google Chat posts. PENDING fails the
 # run on purpose: a post whose links do not resolve is worse than no post.
-# dev.to, Medium and Substack published 2026-11-02.
+# dev.to, Medium, Substack and LinkedIn published 2026-11-02.
 devto-gde  = https://dev.to/gde/gemma-4-in-rust-on-torchtpu-a-native-tpu-rig-with-pyo3-and-mcp-47j1
 medium     = https://xbill999.medium.com/gemma-4-in-rust-on-torchtpu-a-native-tpu-rig-with-pyo3-and-mcp-bd41fdaa9c05
 substack   = https://xbill9.substack.com/p/gemma-4-in-rust-on-torchtpu-a-native
 builder    = SKIP
 repo       = https://github.com/xbill9/torchtpu-dev/tree/main/tpu-pytorchrust-v5e1-2b-q4w4a16emb4
 devto-aws  = SKIP
-linkedin   = PENDING
+linkedin   = https://www.linkedin.com/feed/update/urn:li:activity:7523136892696084480/
