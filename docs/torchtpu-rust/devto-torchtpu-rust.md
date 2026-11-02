@@ -63,7 +63,7 @@ OK: 06_e2b_rust_on_torchtpu ran clean on v5e1 -> runs/2026-11-01/06_e2b_rust_on_
 
 TorchTPU 0.2.0 ships no supported C++ API, and it links `libtorch_python`, so Python has to host the process. Importing `torch_tpu` registers TorchTPU's kernels on libtorch's dispatcher. The [`tch`](https://github.com/LaurentMazare/tch-rs) crate calls that same libtorch, loaded once in the same process, so a Rust call on a `tpu` tensor lands on the TorchTPU kernel.
 
-The bridge is a `pyo3` extension. It unpacks a Python tensor, runs ATen calls and hands the result back:
+The bridge is a [PyO3](https://github.com/PyO3/pyo3) extension. PyO3 0.30 builds the crate as a native Python module, `torchtpu_rs`, and turns Rust functions and structs into Python functions and classes. `tch`'s `python-extension` feature converts a Python `torch.Tensor` to a `tch::Tensor` and back, in two small helpers, `take` and `give`. A function unpacks a Python tensor, runs ATen calls and hands the result back:
 
 ```rust
 #[pyfunction]
@@ -150,6 +150,31 @@ tokens, read_s, decode_s = engine.generate(ids, 64, 1)
 ```
 
 The last argument sets how often tokens come back to the host: 1 streams, 8 reads in batches of eight.
+
+PyO3 is what makes `Engine` a Python class. The Rust model sits behind a `#[pyclass]`, and its methods take and return plain Python lists and numbers, so token ids cross the boundary with no tensor at all:
+
+```rust
+#[pyclass(unsendable)]
+struct Engine(gemma::Gemma);
+
+#[pymethods]
+impl Engine {
+    // new, layout and logits omitted
+    #[pyo3(signature = (ids, max_new, read_every=1))]
+    fn generate(&mut self, ids: Vec<i64>, max_new: i64, read_every: i64) -> (Vec<i64>, f64, f64) {
+        tch::no_grad(|| self.0.generate(&ids, max_new, read_every))
+    }
+}
+
+#[pymodule]
+fn torchtpu_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // the two test functions omitted
+    m.add_class::<Engine>()?;
+    Ok(())
+}
+```
+
+`unsendable` makes PyO3 refuse calls on the engine from any thread but the one that created it.
 
 ---
 
@@ -241,7 +266,7 @@ Keep strict eager for debugging, at about 5 tokens per second.
 
 #### Summary
 
-The goal of this article was to run Gemma 4 E2B on a TPU with the model written in Rust, through TorchTPU and without JAX. The key to the solution was `tch` sharing the one libtorch that TorchTPU registers its kernels with, so a Rust ATen call on a `tpu` tensor reaches a TorchTPU kernel. The Colab v5e-1 results were:
+The goal of this article was to run Gemma 4 E2B on a TPU with the model written in Rust, through TorchTPU and without JAX. The key to the solution was `tch` sharing the one libtorch that TorchTPU registers its kernels with, so a Rust ATen call on a `tpu` tensor reaches a TorchTPU kernel, with PyO3 exposing the Rust engine to Python as a module. The Colab v5e-1 results were:
 
 - 🟢 Rust matches compiled Python on 64 of 64 tokens and 3 of 3 long-prompt answers
 - 🟢 Rust matches Transformers on CPU on 64 of 64 tokens, with a KL divergence of 1.9e-5
@@ -265,6 +290,7 @@ The strategy for running a Rust model on TorchTPU was validated with an incremen
 - Executed run: https://github.com/xbill9/torchtpu-dev/tree/main/colab/runs/2026-11-01
 - PyTorch on TPU: Hands On With Colab: https://dev.to/gde/pytorch-on-tpu-hands-on-with-colab-5b5g
 - tch: https://github.com/LaurentMazare/tch-rs
+- PyO3: https://github.com/PyO3/pyo3
 - W4A16 repack: https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text
 - 4-bit-tables repack: https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4
 - Colab CLI: https://github.com/googlecolab/google-colab-cli

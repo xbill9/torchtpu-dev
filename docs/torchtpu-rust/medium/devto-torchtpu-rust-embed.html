@@ -253,8 +253,14 @@ libtorch's dispatcher. The <a
 href="https://github.com/LaurentMazare/tch-rs"><code>tch</code></a>
 crate calls that same libtorch, loaded once in the same process, so a
 Rust call on a <code>tpu</code> tensor lands on the TorchTPU kernel.</p>
-<p>The bridge is a <code>pyo3</code> extension. It unpacks a Python
-tensor, runs ATen calls and hands the result back:</p>
+<p>The bridge is a <a href="https://github.com/PyO3/pyo3">PyO3</a>
+extension. PyO3 0.30 builds the crate as a native Python module,
+<code>torchtpu_rs</code>, and turns Rust functions and structs into
+Python functions and classes. <code>tch</code>'s
+<code>python-extension</code> feature converts a Python
+<code>torch.Tensor</code> to a <code>tch::Tensor</code> and back, in two
+small helpers, <code>take</code> and <code>give</code>. A function
+unpacks a Python tensor, runs ATen calls and hands the result back:</p>
 <pre class="rust"><code>#[pyfunction]
 fn matmul_sum(py: Python&lt;&#39;_&gt;, x: &amp;Bound&lt;&#39;_, PyAny&gt;) -&gt; PyResult&lt;Py&lt;PyAny&gt;&gt; {
     let x = take(x)?;
@@ -320,6 +326,30 @@ engine = torchtpu_rs.Engine(MODEL_DIR, EMB4_DIR, torch.zeros(1, device=&quot;tpu
 tokens, read_s, decode_s = engine.generate(ids, 64, 1)</code></pre>
 <p>The last argument sets how often tokens come back to the host: 1
 streams, 8 reads in batches of eight.</p>
+<p>PyO3 is what makes <code>Engine</code> a Python class. The Rust model
+sits behind a <code>#[pyclass]</code>, and its methods take and return
+plain Python lists and numbers, so token ids cross the boundary with no
+tensor at all:</p>
+<pre class="rust"><code>#[pyclass(unsendable)]
+struct Engine(gemma::Gemma);
+ 
+#[pymethods]
+impl Engine {
+    // new, layout and logits omitted
+    #[pyo3(signature = (ids, max_new, read_every=1))]
+    fn generate(&amp;mut self, ids: Vec&lt;i64&gt;, max_new: i64, read_every: i64) -&gt; (Vec&lt;i64&gt;, f64, f64) {
+        tch::no_grad(|| self.0.generate(&amp;ids, max_new, read_every))
+    }
+}
+ 
+#[pymodule]
+fn torchtpu_rs(m: &amp;Bound&lt;&#39;_, PyModule&gt;) -&gt; PyResult&lt;()&gt; {
+    // the two test functions omitted
+    m.add_class::&lt;Engine&gt;()?;
+    Ok(())
+}</code></pre>
+<p><code>unsendable</code> makes PyO3 refuse calls on the engine from
+any thread but the one that created it.</p>
 <hr />
 <h4 id="step-5--check-it-against-transformers">Step 5 — Check It Against
 Transformers</h4>
@@ -400,7 +430,8 @@ experimental, so it may change.</p>
 model written in Rust, through TorchTPU and without JAX. The key to the
 solution was <code>tch</code> sharing the one libtorch that TorchTPU
 registers its kernels with, so a Rust ATen call on a <code>tpu</code>
-tensor reaches a TorchTPU kernel. The Colab v5e-1 results were:</p>
+tensor reaches a TorchTPU kernel, with PyO3 exposing the Rust engine to
+Python as a module. The Colab v5e-1 results were:</p>
 <ul>
 <li>🟢 Rust matches compiled Python on 64 of 64 tokens and 3 of 3
 long-prompt answers</li>
@@ -443,6 +474,8 @@ href="https://github.com/xbill9/torchtpu-dev/tree/main/colab/runs/2026-11-01">ht
 href="https://dev.to/gde/pytorch-on-tpu-hands-on-with-colab-5b5g">https://dev.to/gde/pytorch-on-tpu-hands-on-with-colab-5b5g</a></li>
 <li>tch: <a
 href="https://github.com/LaurentMazare/tch-rs">https://github.com/LaurentMazare/tch-rs</a></li>
+<li>PyO3: <a
+href="https://github.com/PyO3/pyo3">https://github.com/PyO3/pyo3</a></li>
 <li>W4A16 repack: <a
 href="https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text">https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text</a></li>
 <li>4-bit-tables repack: <a
