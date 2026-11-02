@@ -1,0 +1,17 @@
+My TorchTPU Sprint project: Gemma 4 in Rust on TorchTPU, Hands On With Colab
+
+A Rust crate reads the checkpoint, runs all 35 layers of Gemma 4 E2B and drives the decode loop on one TPU v5e chip in Colab, with every operation a TorchTPU kernel and the same tokens as compiled Python.
+
+What is in it:
+
+- 🟢 Rust matches compiled Python on 64 of 64 tokens and 3 of 3 long-prompt answers
+- 🟢 Rust matches Transformers on CPU on 64 of 64 tokens, with a KL divergence of 1.9e-5
+- 🟢 One environment variable takes Rust from about 5 to about 15 tokens per second streamed
+- 🟢 Rust peaks at 7.75 GB against 16.91 GB for compile
+
+dev.to (Google Developer Experts): https://dev.to/gde/gemma-4-in-rust-on-torchtpu-hands-on-with-colab-44hi
+Medium: https://medium.com/@xbill999/gemma-4-in-rust-on-torchtpu-hands-on-with-colab-4eb448b1b602
+Substack: https://xbill9.substack.com/p/gemma-4-in-rust-on-torchtpu-hands
+Source: https://github.com/xbill9/torchtpu-dev/tree/main/colab/rust
+
+#TorchTPUSprint #Rust #PyTorch #TPU #Gemma
