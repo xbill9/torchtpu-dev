@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemma on TorchTPU</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2f6fed; --accent-text: #ffffff; --user: #e8effd; --bot: #ffffff; --code: #f1f3f6;
+    --ok: #1f9d55; --bad: #d64545; --warn: #c58a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1a1e26; --text: #e6e8ec; --muted: #98a2b3; --line: #2a303b;
+      --accent: #5b8cff; --accent-text: #0b0d12; --user: #1f2a44; --bot: #1a1e26; --code: #232833;
+      --ok: #3ccf7a; --bad: #ff6b6b; --warn: #f0b429;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .app { display: grid; grid-template-columns: 1fr 300px; height: 100vh; }
+  @media (max-width: 860px) { .app { grid-template-columns: 1fr; } aside { display: none; } }
+  main { display: flex; flex-direction: column; min-width: 0; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .badge { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+           padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  #log { flex: 1; overflow-y: auto; padding: 24px 20px; display: flex; flex-direction: column; gap: 16px; }
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 520px; }
+  .empty h2 { color: var(--text); font-size: 20px; margin: 0 0 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 999px;
+          padding: 6px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+  .chip:hover { border-color: var(--accent); }
+  .msg { max-width: 820px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; }
+  .bubble { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+  .msg.user .bubble { background: var(--user); border-color: transparent; align-self: flex-end; max-width: 85%; }
+  .msg.bot .bubble { background: var(--bot); }
+  .who { font-size: 12px; color: var(--muted); }
+  .msg.user .who { align-self: flex-end; }
+  .stats { font-size: 12px; color: var(--muted); }
+  .bubble p { margin: 0 0 8px; } .bubble p:last-child { margin-bottom: 0; }
+  .bubble pre { background: var(--code); padding: 10px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+  .bubble code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+  .bubble pre code { padding: 0; background: none; }
+  .bubble ul, .bubble ol { margin: 4px 0 8px 20px; padding: 0; }
+  .cursor::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--accent); }
+  @keyframes blink { 50% { opacity: 0; } }
+  form { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 20px; }
+  .row { max-width: 820px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+  textarea { flex: 1; resize: none; min-height: 44px; max-height: 200px; padding: 11px 12px; border-radius: 10px;
+             border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button.primary { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 10px;
+                   padding: 0 18px; height: 44px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  button.ghost { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 10px;
+                 height: 44px; padding: 0 12px; font: inherit; cursor: pointer; }
+  .hint { max-width: 820px; margin: 6px auto 0; font-size: 12px; color: var(--muted); }
+  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 16px; overflow-y: auto; font-size: 13px; }
+  aside h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 8px; }
+  aside h3:first-child { margin-top: 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
+  dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+  label.ctl { display: block; margin: 8px 0 4px; color: var(--muted); }
+  input[type=range] { width: 100%; }
+  aside textarea { width: 100%; min-height: 70px; font-size: 13px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <main>
+    <header>
+      <div>
+        <h1>Gemma 4 E2B · Rust on TorchTPU</h1>
+        <div class="sub">TPU v5e-1 · model in Rust (PyO3) · every op a TorchTPU kernel</div>
+      </div>
+      <span class="badge" id="badge"><span class="dot" id="dot"></span><span id="badgeText">checking…</span></span>
+    </header>
+    <div id="log">
+      <div class="empty" id="empty">
+        <h2>Ask Gemma on the TPU</h2>
+        <div>Replies stream from a Rust model running on a Cloud TPU v5e chip, through this machine's local shim.</div>
+        <div class="chips" id="chips"></div>
+      </div>
+    </div>
+    <form id="form">
+      <div class="row">
+        <textarea id="input" rows="1" placeholder="Message Gemma…  (Enter to send, Shift+Enter for a new line)"></textarea>
+        <button type="button" class="ghost" id="clear" title="Start a new conversation">New</button>
+        <button type="submit" class="primary" id="send">Send</button>
+      </div>
+      <div class="hint">Greedy decoding · one request at a time on the TPU · the conversation is sent with each message</div>
+    </form>
+  </main>
+  <aside>
+    <h3>Settings</h3>
+    <label class="ctl" for="maxTokens">Max tokens: <span id="maxTokensVal">512</span></label>
+    <input type="range" id="maxTokens" min="16" max="2048" step="16" value="512">
+    <label class="ctl" for="system">System prompt (optional)</label>
+    <textarea id="system" placeholder="e.g. Answer in one short paragraph."></textarea>
+    <h3>Last reply</h3>
+    <dl id="last"><dt>—</dt><dd>nothing yet</dd></dl>
+    <h3>On the TPU</h3>
+    <dl id="engine"><dt>—</dt><dd>loading…</dd></dl>
+    <div class="note">Times are measured in this browser, so they include the network to the TPU.</div>
+  </aside>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const log = $("log"), input = $("input"), send = $("send");
+let history = [], model = null, controller = null;
+
+const examples = [
+  "Why is the sky blue? One paragraph.",
+  "Write a haiku about Rust and TPUs.",
+  "Explain a key-value cache in a transformer, simply.",
+  "Give me three fun facts about octopuses.",
+];
+for (const ex of examples) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.type = "button"; b.textContent = ex;
+  b.onclick = () => { input.value = ex; submit(); };
+  $("chips").appendChild(b);
+}
+
+function esc(s) { return s.replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>")
+               .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+               .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+}
+function render(md) {
+  const out = []; const lines = md.split("\n"); let i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.startsWith("```")) {
+      const code = []; i++;
+      while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
+      i++; out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>"); continue;
+    }
+    if (/^\s*([-*•]|\d+\.)\s+/.test(l)) {
+      const ordered = /^\s*\d+\./.test(l); const items = [];
+      while (i < lines.length && /^\s*([-*•]|\d+\.)\s+/.test(lines[i]))
+        items.push("<li>" + inline(lines[i++].replace(/^\s*([-*•]|\d+\.)\s+/, "")) + "</li>");
+      out.push((ordered ? "<ol>" : "<ul>") + items.join("") + (ordered ? "</ol>" : "</ul>")); continue;
+    }
+    if (/^#{1,6}\s/.test(l)) { out.push("<p><strong>" + inline(l.replace(/^#+\s/, "")) + "</strong></p>"); i++; continue; }
+    if (l.trim() === "") { i++; continue; }
+    const para = [];
+    while (i < lines.length && lines[i].trim() !== "" && !lines[i].startsWith("```") && !/^\s*([-*•]|\d+\.)\s+/.test(lines[i]))
+      para.push(inline(lines[i++]));
+    out.push("<p>" + para.join("<br>") + "</p>");
+  }
+  return out.join("");
+}
+
+function addMsg(role, text) {
+  $("empty")?.remove();
+  const m = document.createElement("div"); m.className = "msg " + role;
+  m.innerHTML = `<div class="who">${role === "user" ? "You" : "Gemma · TPU"}</div><div class="bubble"></div><div class="stats"></div>`;
+  m.querySelector(".bubble").innerHTML = role === "user" ? render(text) : "";
+  log.appendChild(m); log.scrollTop = log.scrollHeight;
+  return m;
+}
+
+function setDL(id, rows) {
+  $(id).innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(String(v ?? "—"))}</dd>`).join("");
+}
+
+async function status() {
+  try {
+    const r = await fetch("/shim/status"); const s = await r.json();
+    const ok = s.upstream_health === 200;
+    $("dot").className = "dot " + (ok ? "ok" : "bad");
+    $("badgeText").textContent = ok ? "TPU online" : (s.upstream ? "TPU not answering" : "no TPU found");
+    return ok;
+  } catch { $("dot").className = "dot bad"; $("badgeText").textContent = "shim not answering"; return false; }
+}
+
+async function engine() {
+  try {
+    const m = await (await fetch("/v1/models")).json(); model = m.data[0].id;
+    const e = await (await fetch("/v1/engine")).json();
+    const b = (e.versions || {}).built_with || {};
+    setDL("engine", [
+      ["model", model.split("/").pop()],
+      ["context", e.context + " tokens"],
+      ["mode", e.torch_tpu_defer_and_fuse === "1" ? "defer-and-fuse" : "strict eager"],
+      ["engine", "torchtpu_rs " + (e.versions || {}).torchtpu_rs],
+      ["torch", (e.versions || {}).torch], ["torch_tpu", (e.versions || {}).torch_tpu],
+      ["libtpu", (e.versions || {}).libtpu], ["rustc", (b.rustc || "").replace("rustc ", "")],
+      ["python", (e.versions || {}).python],
+      ["warmup", e.warmup_seconds + " s"],
+    ]);
+  } catch { setDL("engine", [["—", "engine info unavailable"]]); }
+}
+
+async function submit() {
+  const text = input.value.trim();
+  if (!text || controller) return;
+  input.value = ""; autosize();
+  history.push({ role: "user", content: text });
+  addMsg("user", text);
+  const bot = addMsg("bot", ""); const bubble = bot.querySelector(".bubble");
+  bubble.classList.add("cursor");
+  send.textContent = "Stop"; controller = new AbortController();
+  const sys = $("system").value.trim();
+  const messages = (sys ? [{ role: "system", content: sys }] : []).concat(history);
+  const t0 = performance.now(); let ttft = null, reply = "", usage = null, finish = null;
+  try {
+    const r = await fetch("/v1/chat/completions", {
+      method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
+      body: JSON.stringify({ model, messages, stream: true, max_tokens: +$("maxTokens").value,
+                             stream_options: { include_usage: true } }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let k;
+      while ((k = buf.indexOf("\n\n")) >= 0) {
+        const ev = buf.slice(0, k); buf = buf.slice(k + 2);
+        if (!ev.startsWith("data: ")) continue;
+        const data = ev.slice(6); if (data === "[DONE]") continue;
+        const j = JSON.parse(data);
+        if (j.error) throw new Error(j.error.message);
+        const c = (j.choices || [])[0] || {};
+        const piece = (c.delta || {}).content;
+        if (piece) { if (ttft === null) ttft = (performance.now() - t0) / 1000; reply += piece; bubble.innerHTML = render(reply); log.scrollTop = log.scrollHeight; }
+        if (c.finish_reason) finish = c.finish_reason;
+        if (j.usage) usage = j.usage;
+      }
+    }
+  } catch (err) {
+    if (err.name === "AbortError") finish = "stopped";
+    else { bubble.innerHTML = render(reply + `\n\n**Error:** ${err.message}`); }
+  }
+  bubble.classList.remove("cursor");
+  const total = (performance.now() - t0) / 1000;
+  const n = usage ? usage.completion_tokens : null;
+  const rate = n && n > 1 && ttft !== null && total > ttft ? (n - 1) / (total - ttft) : null;
+  bot.querySelector(".stats").textContent =
+    [ttft !== null ? `first token ${ttft.toFixed(2)} s` : null, rate ? `${rate.toFixed(1)} tok/s` : null,
+     n !== null ? `${n} tokens` : null, `${total.toFixed(1)} s`, finish].filter(Boolean).join(" · ");
+  setDL("last", [["first token", ttft !== null ? ttft.toFixed(3) + " s" : "—"], ["decode", rate ? rate.toFixed(1) + " tok/s" : "—"],
+                 ["tokens", n ?? "—"], ["prompt tokens", usage ? usage.prompt_tokens : "—"], ["total", total.toFixed(2) + " s"], ["finish", finish ?? "—"]]);
+  if (reply) history.push({ role: "assistant", content: reply }); else history.pop();
+  controller = null; send.textContent = "Send"; input.focus();
+}
+
+function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 200) + "px"; }
+input.addEventListener("input", autosize);
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } });
+$("form").addEventListener("submit", (e) => { e.preventDefault(); if (controller) controller.abort(); else submit(); });
+$("clear").onclick = () => { if (controller) controller.abort(); history = []; log.innerHTML = ""; location.reload(); };
+$("maxTokens").oninput = (e) => { $("maxTokensVal").textContent = e.target.value; };
+
+status().then((ok) => { if (ok) engine(); });
+setInterval(status, 15000);
+input.focus();
+</script>
+</body>
+</html>

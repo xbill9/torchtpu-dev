@@ -1,0 +1,129 @@
+{
+  "url": "http://136.85.219.123:8000",
+  "model": "xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4",
+  "max_tokens": 128,
+  "requests": [
+    {
+      "round": 0,
+      "prompt": "Why is the sky blue? Answer in two sentences.",
+      "ttft_s": 0.25639343799957715,
+      "total_s": 4.267001559999699,
+      "usage": {
+        "prompt_tokens": 20,
+        "completion_tokens": 48,
+        "total_tokens": 68
+      },
+      "client_decode_tok_s": 11.71892106391106
+    },
+    {
+      "round": 0,
+      "prompt": "Write a haiku about tensor processing units.",
+      "ttft_s": 0.17550532300083432,
+      "total_s": 1.6567695590001676,
+      "usage": {
+        "prompt_tokens": 18,
+        "completion_tokens": 18,
+        "total_tokens": 36
+      },
+      "client_decode_tok_s": 11.47668294882646
+    },
+    {
+      "round": 0,
+      "prompt": "List three uses of the Rust programming language, one line each.",
+      "ttft_s": 0.1771037239996076,
+      "total_s": 6.13705716000004,
+      "usage": {
+        "prompt_tokens": 22,
+        "completion_tokens": 73,
+        "total_tokens": 95
+      },
+      "client_decode_tok_s": 12.080631295723226
+    },
+    {
+      "round": 0,
+      "prompt": "Explain what a key-value cache does in a transformer, briefly.",
+      "ttft_s": 0.18505311599983543,
+      "total_s": 10.741736439998931,
+      "usage": {
+        "prompt_tokens": 23,
+        "completion_tokens": 128,
+        "total_tokens": 151
+      },
+      "client_decode_tok_s": 12.030293616109885
+    },
+    {
+      "round": 1,
+      "prompt": "Why is the sky blue? Answer in two sentences.",
+      "ttft_s": 0.17918312499932654,
+      "total_s": 4.0854727149999235,
+      "usage": {
+        "prompt_tokens": 20,
+        "completion_tokens": 48,
+        "total_tokens": 68
+      },
+      "client_decode_tok_s": 12.031878056432785
+    },
+    {
+      "round": 1,
+      "prompt": "Write a haiku about tensor processing units.",
+      "ttft_s": 0.17498217400134308,
+      "total_s": 1.6000342990009813,
+      "usage": {
+        "prompt_tokens": 18,
+        "completion_tokens": 18,
+        "total_tokens": 36
+      },
+      "client_decode_tok_s": 11.929388196943544
+    },
+    {
+      "round": 1,
+      "prompt": "List three uses of the Rust programming language, one line each.",
+      "ttft_s": 0.17559747099949163,
+      "total_s": 5.912136529001145,
+      "usage": {
+        "prompt_tokens": 22,
+        "completion_tokens": 73,
+        "total_tokens": 95
+      },
+      "client_decode_tok_s": 12.551121725488867
+    },
+    {
+      "round": 1,
+      "prompt": "Explain what a key-value cache does in a transformer, briefly.",
+      "ttft_s": 0.17625615100041614,
+      "total_s": 10.579073845001403,
+      "usage": {
+        "prompt_tokens": 23,
+        "completion_tokens": 128,
+        "total_tokens": 151
+      },
+      "client_decode_tok_s": 12.208230859725374
+    }
+  ],
+  "timed": {
+    "id": "chatcmpl-8445d18f9d654b10b98a754f",
+    "object": "chat.completion",
+    "created": 1793644238,
+    "model": "xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4",
+    "system_fingerprint": "torchtpu_rs-greedy",
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "The sky appears blue because of a phenomenon called Rayleigh scattering, where shorter wavelengths of sunlight are scattered more effectively by the Earth's atmosphere than longer wavelengths. This scattering of blue light is what we see when we look up during the day."
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 20,
+      "completion_tokens": 48,
+      "total_tokens": 68
+    },
+    "timings": {
+      "read_s": 0.087548995,
+      "decode_s": 3.964842016
+    }
+  }
+}

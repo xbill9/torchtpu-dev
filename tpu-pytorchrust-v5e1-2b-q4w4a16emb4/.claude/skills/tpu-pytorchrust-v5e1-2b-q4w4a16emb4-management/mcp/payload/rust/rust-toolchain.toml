@@ -1,0 +1,7 @@
+# Newest nightly, on the laptop and on the TPU VM alike: rustup reads this file and installs
+# the toolchain on the first cargo call. The exact rustc that built the module is recorded in
+# torchtpu_rs.RUSTC_VERSION and reported by GET /v1/engine.
+[toolchain]
+channel = "nightly"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

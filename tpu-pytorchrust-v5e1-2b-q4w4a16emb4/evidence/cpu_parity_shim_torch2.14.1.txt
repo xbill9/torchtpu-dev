@@ -1,0 +1,8 @@
+# CPU parity, 2026-11-02, laptop CPU. Rust: rust/build/torchtpu_rs.so (ATen shim, no tch) on Python 3.14.7, torch 2.14.1+cpu, rustc nightly.
+# Reference: Transformers 5.20.2, compressed-tensors 0.19.0 (pip --target side dir), torch 2.14.1+cpu, loaded with key_mapping and CompressedTensorsConfig(run_compressed=False) as notebook 06 does.
+# Prompt: 'Why is the sky blue? Explain in one paragraph.', chat template, greedy, 64 new tokens, context 1024.
+# Produced by par_side.py (copied beside this file): one process per side, outputs compared below.
+rust {'torch': '2.14.1+cpu', 'rustc': 'rustc 1.101.0-nightly (3e92e1a2d 2026-11-01)', 'python': '3.14.7', 'crate': '0.1.0'}
+hf   {'torch': '2.14.1+cpu', 'transformers': '5.20.2'}
+top5 rust [818, 8409, 102500, 4420, 16520] hf [818, 102500, 8409, 4420, 16520]
+KL(hf||rs) 1.078e-05; same 64 of 64; first diff None

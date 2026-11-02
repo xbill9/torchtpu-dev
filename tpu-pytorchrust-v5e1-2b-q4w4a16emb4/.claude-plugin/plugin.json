@@ -1,0 +1,30 @@
+{
+  "name": "tpu-pytorchrust-v5e1-2b-q4w4a16emb4",
+  "description": "Provision a TPU v5e-1 and serve Gemma 4 E2B with the model written in Rust on TorchTPU (a PyO3 extension over its own ATen shim, no tch), OpenAI-compatible, via the tpu-pytorchrust-v5e1-2b-q4w4a16emb4 MCP server: queued resources, startup stages, the PyO3 bindings, benchmarks.",
+  "version": "0.1.0",
+  "author": {
+    "name": "xbill9",
+    "url": "https://github.com/xbill9"
+  },
+  "homepage": "https://github.com/xbill9/torchtpu-dev/tree/main/tpu-pytorchrust-v5e1-2b-q4w4a16emb4",
+  "repository": "https://github.com/xbill9/torchtpu-dev",
+  "license": "Apache-2.0",
+  "keywords": [
+    "tpu",
+    "gcp",
+    "rust",
+    "pyo3",
+    "torchtpu",
+    "pytorch",
+    "gemma",
+    "mcp"
+  ],
+  "mcpServers": {
+    "tpu-pytorchrust-v5e1-2b-q4w4a16emb4": {
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/skills/tpu-pytorchrust-v5e1-2b-q4w4a16emb4-management/mcp/server.py"
+      ]
+    }
+  }
+}

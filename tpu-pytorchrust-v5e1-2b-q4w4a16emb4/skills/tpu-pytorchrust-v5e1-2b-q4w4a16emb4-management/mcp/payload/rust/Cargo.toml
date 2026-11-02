@@ -1,0 +1,22 @@
+[package]
+name = "torchtpu_rs"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Gemma 4 E2B in Rust on TorchTPU: a PyO3 extension over a small ATen shim, linked to the libtorch torch_tpu registers its kernels with."
+
+[lib]
+name = "torchtpu_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.30", features = ["extension-module"] }
+safetensors = "0.8.0"
+memmap2 = "0.9.12"
+serde_json = "1.0.154"
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+opt-level = 3

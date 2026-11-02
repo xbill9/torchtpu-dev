@@ -1,0 +1,15 @@
+{
+  "name": "tpu-pytorchrust-v5e1-2b-q4w4a16emb4",
+  "description": "Claude Code plugin for the tpu-pytorchrust-v5e1-2b-q4w4a16emb4 rig: Gemma 4 E2B in Rust on TorchTPU, on a TPU v5e-1.",
+  "owner": {
+    "name": "xbill9",
+    "url": "https://github.com/xbill9"
+  },
+  "plugins": [
+    {
+      "name": "tpu-pytorchrust-v5e1-2b-q4w4a16emb4",
+      "source": "./",
+      "description": "Provision a TPU v5e-1 and serve Gemma 4 E2B with the model written in Rust on TorchTPU (a PyO3 extension over its own ATen shim, no tch), OpenAI-compatible, via the tpu-pytorchrust-v5e1-2b-q4w4a16emb4 MCP server: queued resources, startup stages, the PyO3 bindings, benchmarks."
+    }
+  ]
+}

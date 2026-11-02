@@ -7,6 +7,7 @@ Gemma 4 serving rigs for TorchTPU (native PyTorch on Cloud TPU), one directory p
 | [`tpu-pytorch-v5e1-12b-w4a16`](tpu-pytorch-v5e1-12b-w4a16/) | TPU v5e-1 | `google/gemma-4-12B-it-qat-w4a16-ct` | The original rig; benchmark runs and articles live here |
 | [`tpu-pytorch-v5e1-2b`](tpu-pytorch-v5e1-2b/) | TPU v5e-1 | `google/gemma-4-E2B-it` | Fork, not yet provisioned |
 | [`tpu-pytorch-v5e1-2b-w4a16`](tpu-pytorch-v5e1-2b-w4a16/) | TPU v5e-1 | `google/gemma-4-E2B-it-qat-w4a16-ct` | Fork, not yet provisioned |
+| [`tpu-pytorchrust-v5e1-2b-q4w4a16emb4`](tpu-pytorchrust-v5e1-2b-q4w4a16emb4/) | TPU v5e-1 | `xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text-emb4` | The model in Rust (PyO3 extension over its own ATen shim) on TorchTPU, served OpenAI-compatible; sister of `tpu-pytorch-v5e1-2b-w4a16`. Served on a v5e-1, 2026-11-02 |
 | [`tpu-pytorch-v6e1-12b-w4a16`](tpu-pytorch-v6e1-12b-w4a16/) | TPU v6e-1 | `google/gemma-4-12B-it-qat-w4a16-ct` | Fork, not yet provisioned |
 | [`tpu-pytorch-v5e4-12b-w4a16`](tpu-pytorch-v5e4-12b-w4a16/) | TPU v5e-4 | `google/gemma-4-12B-it-qat-w4a16-ct` | Fork, not yet provisioned; serves from one chip |
 | [`colab`](colab/) | Colab v5e-1 runtime | synthetic tensors (01); Gemma 4 E2B QAT repack (02 to 05) | Notebooks 01 (execution modes), 02 (Gemma 4 E2B repack, ways to run it), 03 (JAX vs TorchTPU head-to-head) 04 (one compiled decode step, 6x to 10x `generate`) and 05 (a ring cache for the full 131k context), run on a Colab v5e-1; plus serving code |

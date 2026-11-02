@@ -30,6 +30,11 @@
       "name": "tpu-pytorch-v5e4-12b-w4a16",
       "source": "./tpu-pytorch-v5e4-12b-w4a16",
       "description": "Manage Google Cloud TPU capacity and Gemma 4 vLLM serving on TPU VMs: provisioning, queued resources, quotas, cost estimates, benchmarking, and SRE diagnostics via the tpu-pytorch-v5e4-12b-w4a16 MCP server."
+    },
+    {
+      "name": "tpu-pytorchrust-v5e1-2b-q4w4a16emb4",
+      "source": "./tpu-pytorchrust-v5e1-2b-q4w4a16emb4",
+      "description": "Provision a TPU v5e-1 and serve Gemma 4 E2B with the model written in Rust on TorchTPU (a PyO3 extension over its own ATen shim, no tch), OpenAI-compatible, via the tpu-pytorchrust-v5e1-2b-q4w4a16emb4 MCP server: queued resources, startup stages, the PyO3 bindings, benchmarks."
     }
   ]
 }
