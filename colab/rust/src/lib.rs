@@ -16,7 +16,9 @@ fn take(ob: &Bound<'_, PyAny>) -> PyResult<Tensor> {
 }
 
 fn give(py: Python<'_>, t: Tensor) -> PyResult<Py<PyAny>> {
-    let ptr = t.pyobject_wrap().map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
+    let ptr = t
+        .pyobject_wrap()
+        .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
     Ok(unsafe { Bound::from_owned_ptr(py, ptr as *mut pyo3::ffi::PyObject) }.unbind())
 }
 
@@ -31,7 +33,10 @@ fn matmul_sum(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 #[pyfunction]
 fn arange_like(py: Python<'_>, n: i64, like: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let like = take(like)?;
-    give(py, Tensor::arange(n, (Kind::Float, tch::Device::Cpu)).type_as(&like))
+    give(
+        py,
+        Tensor::arange(n, (Kind::Float, tch::Device::Cpu)).type_as(&like),
+    )
 }
 
 /// Gemma 4 E2B, all in Rust. `like` is any tensor on the target device.
@@ -41,7 +46,12 @@ struct Engine(gemma::Gemma);
 #[pymethods]
 impl Engine {
     #[new]
-    fn new(model_dir: &str, emb4_dir: &str, like: &Bound<'_, PyAny>, context: i64) -> PyResult<Self> {
+    fn new(
+        model_dir: &str,
+        emb4_dir: &str,
+        like: &Bound<'_, PyAny>,
+        context: i64,
+    ) -> PyResult<Self> {
         let like = take(like)?;
         Ok(Engine(tch::no_grad(|| {
             gemma::Gemma::load(model_dir.as_ref(), emb4_dir.as_ref(), &like, context)

@@ -17,7 +17,10 @@ impl Store {
     pub fn open(dirs: &[(&Path, &[&str])]) -> Store {
         let (mut maps, mut index) = (Vec::new(), HashMap::new());
         for (dir, skip) in dirs {
-            let mut paths: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+            let mut paths: Vec<_> = std::fs::read_dir(dir)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect();
             paths.sort();
             for p in paths {
                 let name = p.file_name().unwrap().to_string_lossy().to_string();
@@ -39,7 +42,10 @@ impl Store {
     }
 
     pub fn get(&self, name: &str) -> Tensor {
-        let file = self.index.get(name).unwrap_or_else(|| panic!("no tensor {name}"));
+        let file = self
+            .index
+            .get(name)
+            .unwrap_or_else(|| panic!("no tensor {name}"));
         let st = SafeTensors::deserialize(&self.maps[*file]).unwrap();
         let view = st.tensor(name).unwrap();
         let kind = match view.dtype() {
@@ -57,10 +63,15 @@ impl Store {
     /// A 4-bit Linear weight as bf16 [out, in]. packed[o, j] holds columns 8j..8j+7, low nibble
     /// first, offset 8; scale[o, g] covers columns 32g..32g+31.
     pub fn unpacked(&self, name: &str) -> Tensor {
-        let (packed, scale) = (self.get(&format!("{name}.weight_packed")), self.get(&format!("{name}.weight_scale")));
+        let (packed, scale) = (
+            self.get(&format!("{name}.weight_packed")),
+            self.get(&format!("{name}.weight_scale")),
+        );
         let (o, g) = (scale.size()[0], scale.size()[1]);
         let q = nibbles(&packed).view([o, g, 32]);
-        (q * scale.unsqueeze(-1).to_kind(Kind::Float)).to_kind(Kind::BFloat16).view([o, g * 32])
+        (q * scale.unsqueeze(-1).to_kind(Kind::Float))
+            .to_kind(Kind::BFloat16)
+            .view([o, g * 32])
     }
 }
 
@@ -71,5 +82,10 @@ pub fn nibbles(packed: &Tensor) -> Tensor {
 }
 
 pub fn nibbles_with(packed: &Tensor, shifts: &Tensor) -> Tensor {
-    packed.unsqueeze(-1).bitwise_right_shift(shifts).bitwise_and(15).to_kind(Kind::Float) - 8
+    packed
+        .unsqueeze(-1)
+        .bitwise_right_shift(shifts)
+        .bitwise_and(15)
+        .to_kind(Kind::Float)
+        - 8
 }

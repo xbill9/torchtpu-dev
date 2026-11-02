@@ -34,7 +34,10 @@ impl Linear {
 struct RmsNorm(Option<Tensor>);
 impl RmsNorm {
     fn load(s: &Store, name: &str, like: &Tensor) -> RmsNorm {
-        RmsNorm(Some(on(&s.get(&format!("{name}.weight")).to_kind(Kind::Float), like)))
+        RmsNorm(Some(on(
+            &s.get(&format!("{name}.weight")).to_kind(Kind::Float),
+            like,
+        )))
     }
     fn fwd(&self, x: &Tensor) -> Tensor {
         let f = x.to_kind(Kind::Float);
@@ -59,7 +62,13 @@ impl Ring {
     fn new(slots: i64, dim: i64, window: Option<i64>, like: &Tensor) -> Ring {
         let zeros = || on(&Tensor::zeros([slots, dim], (BF16, Device::Cpu)), like);
         let kpos = on(&Tensor::full([slots], -1, (Kind::Int64, Device::Cpu)), like);
-        Ring { slots, window, k: zeros(), v: zeros(), kpos }
+        Ring {
+            slots,
+            window,
+            k: zeros(),
+            v: zeros(),
+            kpos,
+        }
     }
     fn write(&mut self, pos: &Tensor, k: &Tensor, v: &Tensor) {
         let slot = pos.remainder(self.slots);
@@ -76,7 +85,10 @@ impl Ring {
             keep = keep.logical_and(&kpos.greater_tensor(&(&qpos - w)));
         }
         let weights = scores.masked_fill(&keep.logical_not().unsqueeze(1), f64::NEG_INFINITY);
-        weights.softmax(-1, Kind::Float).to_kind(q.kind()).matmul(&self.v)
+        weights
+            .softmax(-1, Kind::Float)
+            .to_kind(q.kind())
+            .matmul(&self.v)
     }
 }
 
@@ -123,7 +135,13 @@ pub struct Gemma {
 
 fn inv_freq(theta: f64, dim: i64, rotated_pairs: i64) -> Tensor {
     let inv: Vec<f32> = (0..dim / 2)
-        .map(|i| if i < rotated_pairs { (1.0 / theta.powf((2 * i) as f64 / dim as f64)) as f32 } else { 0.0 })
+        .map(|i| {
+            if i < rotated_pairs {
+                (1.0 / theta.powf((2 * i) as f64 / dim as f64)) as f32
+            } else {
+                0.0
+            }
+        })
         .collect();
     Tensor::from_slice(&inv)
 }
@@ -131,10 +149,20 @@ fn inv_freq(theta: f64, dim: i64, rotated_pairs: i64) -> Tensor {
 impl Gemma {
     pub fn load(model_dir: &Path, emb4_dir: &Path, like: &Tensor, context: i64) -> Gemma {
         assert!(context % CHUNK == 0);
-        let cfg: Value = serde_json::from_reader(std::fs::File::open(model_dir.join("config.json")).unwrap()).unwrap();
-        let cfg = if cfg["text_config"].is_object() { &cfg["text_config"] } else { &cfg };
-        let types: Vec<bool> =
-            cfg["layer_types"].as_array().unwrap().iter().map(|t| t == "full_attention").collect();
+        let cfg: Value =
+            serde_json::from_reader(std::fs::File::open(model_dir.join("config.json")).unwrap())
+                .unwrap();
+        let cfg = if cfg["text_config"].is_object() {
+            &cfg["text_config"]
+        } else {
+            &cfg
+        };
+        let types: Vec<bool> = cfg["layer_types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t == "full_attention")
+            .collect();
         let n_layers = types.len();
         let first_shared = n_layers - cfg["num_kv_shared_layers"].as_u64().unwrap() as usize;
         let window = cfg["sliding_window"].as_i64().unwrap();
@@ -142,12 +170,20 @@ impl Gemma {
         let heads = cfg["num_attention_heads"].as_i64().unwrap();
         let rope = &cfg["rope_parameters"];
         let theta = |k: &str| rope[k]["rope_theta"].as_f64().unwrap();
-        let (dim_s, dim_f) = (cfg["head_dim"].as_i64().unwrap(), cfg["global_head_dim"].as_i64().unwrap());
-        let factor = rope["full_attention"]["partial_rotary_factor"].as_f64().unwrap();
+        let (dim_s, dim_f) = (
+            cfg["head_dim"].as_i64().unwrap(),
+            cfg["global_head_dim"].as_i64().unwrap(),
+        );
+        let factor = rope["full_attention"]["partial_rotary_factor"]
+            .as_f64()
+            .unwrap();
         let pairs_f = (factor * dim_f as f64 / 2.0).floor() as i64;
 
         // The text repack's rest-001 is the bf16 per-layer table; the int4 twin replaces it.
-        let store = Store::open(&[(model_dir, &["model-rest-001.safetensors"]), (emb4_dir, &[])]);
+        let store = Store::open(&[
+            (model_dir, &["model-rest-001.safetensors"]),
+            (emb4_dir, &[]),
+        ]);
         let f = |name: &str| format!("{P}.{name}");
         let mut layers = Vec::with_capacity(n_layers);
         let mut rings = Vec::new();
@@ -161,14 +197,33 @@ impl Gemma {
             let owns = i < first_shared;
             assert_eq!(owns, store.has(&l("self_attn.k_proj.weight_packed")));
             let kv = owns.then(|| {
-                (lin("self_attn.k_proj"), lin("self_attn.v_proj"), norm("self_attn.k_norm"), RmsNorm(None))
+                (
+                    lin("self_attn.k_proj"),
+                    lin("self_attn.v_proj"),
+                    norm("self_attn.k_norm"),
+                    RmsNorm(None),
+                )
             });
             if owns {
-                let (slots, w) = if full { (context, None) } else { (window + CHUNK, Some(window)) };
+                let (slots, w) = if full {
+                    (context, None)
+                } else {
+                    (window + CHUNK, Some(window))
+                };
                 rings.push(Ring::new(slots, head_dim, w, like));
-                *(if full { &mut last_full } else { &mut last_sliding }) = rings.len() - 1;
+                *(if full {
+                    &mut last_full
+                } else {
+                    &mut last_sliding
+                }) = rings.len() - 1;
             }
-            let ring = if owns { rings.len() - 1 } else if full { last_full } else { last_sliding };
+            let ring = if owns {
+                rings.len() - 1
+            } else if full {
+                last_full
+            } else {
+                last_sliding
+            };
             layers.push(Layer {
                 full,
                 head_dim,
@@ -199,14 +254,20 @@ impl Gemma {
             embed_scale: on(&embed_scale, like),
             ple_packed: rows("embed_tokens_per_layer.weight_packed"),
             ple_scale: rows("embed_tokens_per_layer.weight_scale").to_kind(Kind::Float),
-            shifts: on(&Tensor::arange_start_step(0, 32, 4, (Kind::Int, Device::Cpu)), like),
+            shifts: on(
+                &Tensor::arange_start_step(0, 32, 4, (Kind::Int, Device::Cpu)),
+                like,
+            ),
             ple_model: Linear::load(&store, &f("per_layer_model_projection"), like),
             ple_norm: RmsNorm::load(&store, &f("per_layer_projection_norm"), like),
             norm: RmsNorm::load(&store, &f("norm"), like),
             layers,
             rings,
             inv_freq: [
-                on(&inv_freq(theta("sliding_attention"), dim_s, dim_s / 2), like),
+                on(
+                    &inv_freq(theta("sliding_attention"), dim_s, dim_s / 2),
+                    like,
+                ),
                 on(&inv_freq(theta("full_attention"), dim_f, pairs_f), like),
             ],
             softcap: cfg["final_logit_softcapping"].as_f64().unwrap(),
@@ -218,7 +279,12 @@ impl Gemma {
 
     pub fn layout(&self) -> (usize, usize, usize, i64) {
         let full = self.rings.iter().filter(|r| r.window.is_none()).count();
-        (full, self.rings.len() - full, self.layers.len() - self.rings.len(), self.context)
+        (
+            full,
+            self.rings.len() - full,
+            self.layers.len() - self.rings.len(),
+            self.context,
+        )
     }
 
     fn forward(&mut self, ids: &Tensor, pos: &Tensor) -> Tensor {
@@ -227,7 +293,10 @@ impl Gemma {
         let mut h = self.embed.index_select(0, ids).view([1, n, self.hidden]) * &self.embed_scale;
 
         // Per-layer inputs: the int4 table looked up by token, plus a projection of the embedding.
-        let (p, s) = (self.ple_packed.index_select(0, ids), self.ple_scale.index_select(0, ids));
+        let (p, s) = (
+            self.ple_packed.index_select(0, ids),
+            self.ple_scale.index_select(0, ids),
+        );
         let groups = s.size()[1];
         let w = nibbles_with(&p, &self.shifts).view([n, groups, 32]) * s.unsqueeze(-1);
         let table = (w.to_kind(BF16) * self.embed_scale_ple()).view([1, n, n_layers, -1]);
@@ -252,7 +321,10 @@ impl Gemma {
             if let Some((k_proj, v_proj, k_norm, v_norm)) = &l.kv {
                 let k = k_norm.fwd(&k_proj.fwd(&x).view([1, n, -1, l.head_dim]));
                 let k = rotate(&k, cos, sin).select(2, 0).select(0, 0);
-                let v = v_norm.fwd(&v_proj.fwd(&x).view([1, n, -1, l.head_dim])).select(2, 0).select(0, 0);
+                let v = v_norm
+                    .fwd(&v_proj.fwd(&x).view([1, n, -1, l.head_dim]))
+                    .select(2, 0)
+                    .select(0, 0);
                 rings[l.ring].write(pos, &k, &v);
             }
             let o = rings[l.ring].attend(&q.select(0, 0), pos).view([1, n, -1]);
